@@ -29,6 +29,10 @@ Google AI Studio does not automatically execute arbitrary Agent Skills just beca
 | security-and-secrets | OAuth token handling, least privilege and secret management |
 | quality-engineering | Unit, integration, end-to-end tests and release gates |
 
+## Included upstream skill snapshot
+
+The original Gemini Files skill from akrindev/google-studio-skills is preserved verbatim under upstream/akrindev-google-studio-skills/gemini-files, with its MIT attribution in that folder. Treat it as an upstream snapshot: its old limits and examples may be stale. Verify current Gemini Files API behaviour before implementation.
+
 ## Non-negotiable boundaries
 
 - No downloading, scraping, ripping or bypassing access controls on YouTube or broadcast sources.
@@ -42,8 +46,4 @@ Google AI Studio does not automatically execute arbitrary Agent Skills just beca
 
 ## Sources and licences
 
-See SOURCES_AND_LICENSES.md. This repository contains curated original instructions and references. It does not bundle upstream model weights, match footage, datasets or third-party source trees. Upstream code and assets remain governed by their own licences and terms.
-
-## Build order
-
-See BUILD_SEQUENCE.md. Implement one subsystem at a time, with tests and a working integration at each stage.
+See SOURCES_AND_LICENSES.md. This repository contains curated original instructions and references. It does not bundle upstream model weights, match footage, datasets or third-party source trees. Upstream code and assets remain governed by their own licences and terms. The root MIT licence covers original material in this repository; third-party snapshots retain their stated upstream licence.
