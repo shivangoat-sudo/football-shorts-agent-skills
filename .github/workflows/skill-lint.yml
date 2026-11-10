@@ -14,7 +14,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Validate skill metadata and required sections
+      - name: Validate skill metadata and AI Studio mirrors
         run: |
           python - <<'PY'
           from pathlib import Path
@@ -34,6 +34,9 @@ jobs:
               assert desc, f"{path}: missing description"
               assert len(desc.group(1)) <= 1024, f"{path}: description too long"
               assert len(text) > 500, f"{path}: suspiciously short skill"
-              print(f"OK {path}")
-          print(f"Validated {len(files)} skills")
+              mirror = Path(".agents/skills") / path.parent.name / "SKILL.md"
+              assert mirror.is_file(), f"Missing AI Studio mirror: {mirror}"
+              assert mirror.read_text(encoding="utf-8") == text, f"Skill mirror differs: {mirror}"
+              print(f"OK {path} and {mirror}")
+          print(f"Validated {len(files)} canonical skills and all AI Studio mirrors")
           PY
