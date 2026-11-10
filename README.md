@@ -6,13 +6,11 @@ This repository is a build-time knowledge pack, not a running application or a m
 
 ## Use with Google AI Studio
 
-1. Make this repository available to the AI Studio project. For a private repository, use an authenticated GitHub import/clone route or provide the skill files to the project.
-2. Start with AI_STUDIO_BUILD_BRIEF.md.
-3. Ask the builder to read AGENTS.md and then the relevant SKILL.md files.
-4. Require it to follow BUILD_SEQUENCE.md and its acceptance tests.
-5. Keep the skills in the project and refer to them during future changes.
+Start with [AI_STUDIO_SETUP.md](AI_STUDIO_SETUP.md) to import the private repository into Build mode or mount it in the Agents playground. Use [AI_STUDIO_BUILD_BRIEF.md](AI_STUDIO_BUILD_BRIEF.md) as the initial build instruction.
 
-Google AI Studio does not automatically execute arbitrary Agent Skills just because they exist in GitHub. These files are instructions and references. Executable integrations still need to be implemented, configured, tested and hosted.
+The canonical skill files live under skills/. Matching copies are mirrored under .agents/skills/ for Google AI Studio's documented agent skill discovery path. GitHub Actions checks that both copies stay identical.
+
+AI Studio does not execute arbitrary code merely because a skill file exists. The files provide instructions and references; the builder still needs to implement, configure, test and host the integrations.
 
 ## Skill catalogue
 
@@ -31,7 +29,7 @@ Google AI Studio does not automatically execute arbitrary Agent Skills just beca
 
 ## Included upstream skill snapshot
 
-The original Gemini Files skill from akrindev/google-studio-skills is preserved verbatim under upstream/akrindev-google-studio-skills/gemini-files, with its MIT attribution in that folder. Treat it as an upstream snapshot: its old limits and examples may be stale. Verify current Gemini Files API behaviour before implementation.
+The original Gemini Files skill from akrindev/google-studio-skills is preserved verbatim under upstream/akrindev-google-studio-skills/gemini-files, with MIT attribution in that folder. Treat it as an upstream snapshot: old limits and examples may be stale. Verify current Gemini Files API behaviour before implementation.
 
 ## Non-negotiable boundaries
 
@@ -44,6 +42,4 @@ The original Gemini Files skill from akrindev/google-studio-skills is preserved 
 - Never commit API keys, OAuth tokens, cookies, footage or private customer data.
 - Do not claim the system is production-ready until end-to-end acceptance tests pass.
 
-## Sources and licences
-
-See SOURCES_AND_LICENSES.md. This repository contains curated original instructions and references. It does not bundle upstream model weights, match footage, datasets or third-party source trees. Upstream code and assets remain governed by their own licences and terms. The root MIT licence covers original material in this repository; third-party snapshots retain their stated upstream licence.
+See SOURCES_AND_LICENSES.md for the upstream research and licence register. The root MIT licence covers original material; third-party snapshots retain their stated upstream licence.
