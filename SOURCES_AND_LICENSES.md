@@ -1,17 +1,19 @@
 # Upstream repositories and licence register
 
-This register records upstream projects reviewed for this skill pack. The skill files in this repository are curated instructions written for this football Shorts product. They link to upstream projects rather than silently copying entire codebases.
+This register records upstream projects reviewed for this skill pack. The skill files here are curated instructions written for this football Shorts product. They link to upstream projects rather than silently copying entire codebases, except for the explicitly attributed Gemini Files skill snapshot under upstream/.
 
 | Capability | Upstream repository | Licence / status | Intended use |
 |---|---|---|---|
 | Google agent skills | https://github.com/google/skills | Apache-2.0 | Reference for modular skill packaging, Gemini and evaluation workflows |
-| Google AI Studio Gemini skills | https://github.com/akrindev/google-studio-skills | MIT | Reference for Gemini API skill structure and AI Studio API-key workflows; verify current SDK/model docs |
+| Google AI Studio Gemini skills | https://github.com/akrindev/google-studio-skills | MIT | Reference for Gemini API skill structure; Gemini Files skill snapshot copied with attribution |
 | Soccer action spotting | https://github.com/SoccerNet/sn-spotting | MIT | Benchmark/evaluation and candidate model integration |
 | Video editing for agents | https://github.com/MM-mikolajmikolajczak/agent-video-studio | MIT | Inspect → edit plan → render → QC, SHA-256 provenance, subtitles and audio mix |
 | Scene detection | https://github.com/Breakthrough/PySceneDetect | BSD-3-Clause | Scene boundary detection adapter |
-| Official YouTube API examples | https://github.com/youtube/api-samples | Check repository-level licence and each sample before copying | Reference examples; prefer official API docs |
-| Google API Python client | https://github.com/googleapis/google-api-python-client | Apache-2.0 | Official Google API client library |
-| Google ADK skills documentation | https://github.com/google/adk-docs | Check page/repository terms before reproducing | Explains modular skill layout and progressive loading |
+| Official YouTube API examples | https://github.com/youtube/api-samples | Repository licence not verified in this review; reference only | API workflow examples; do not copy sample source until its licence is confirmed |
+| Google API Python client | https://github.com/googleapis/google-api-python-client | Apache-2.0 | Google discovery-based API client; repository states it is in maintenance mode |
+| Google Gen AI Python SDK | https://github.com/googleapis/python-genai | Apache-2.0 | Official SDK for Gemini Developer API and Google enterprise model endpoints |
+| Full-stack FastAPI template | https://github.com/fastapi/full-stack-fastapi-template | MIT | Reference architecture for FastAPI, PostgreSQL, Pydantic and React; adapt, do not blindly clone |
+| Google ADK skills documentation | https://github.com/google/adk-docs | Documentation source; check page/repository terms before reproducing | Explains modular skill layout and progressive loading |
 
 ## Copying policy
 
