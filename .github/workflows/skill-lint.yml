@@ -1,0 +1,39 @@
+name: Validate skill pack
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate skill metadata and required sections
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+          files = sorted(Path("skills").glob("*/SKILL.md"))
+          assert files, "No skills found"
+          for path in files:
+              text = path.read_text(encoding="utf-8")
+              assert text.startswith("---\n"), f"{path}: missing YAML frontmatter"
+              match = re.match(r"---\n(.*?)\n---\n", text, re.S)
+              assert match, f"{path}: malformed frontmatter"
+              front = match.group(1)
+              name = re.search(r"^name:\s*([a-z0-9-]+)$", front, re.M)
+              desc = re.search(r"^description:\s*(.+)$", front, re.M)
+              assert name, f"{path}: invalid/missing name"
+              assert name.group(1) == path.parent.name, f"{path}: directory/name mismatch"
+              assert desc, f"{path}: missing description"
+              assert len(desc.group(1)) <= 1024, f"{path}: description too long"
+              assert len(text) > 500, f"{path}: suspiciously short skill"
+              print(f"OK {path}")
+          print(f"Validated {len(files)} skills")
+          PY
