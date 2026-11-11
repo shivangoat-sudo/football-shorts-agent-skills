@@ -7,6 +7,12 @@ description: Use whenever footage, music, commentary, graphics, logos, fonts or 
 
 A public video URL, creator permission, subscription or ability to watch a match does not by itself grant commercial reuse rights. Rights may be split between source creator, broadcaster, league, clubs, music owners, commentators and other parties.
 
+## Required companion skills
+
+- `authorized-media-acquisition` for lawful original-file intake and provenance.
+- `music-licensing-audio` for separate music/sound-effect grants.
+- `youtube-policy-preflight` for the separate platform-policy and monetisation risk assessment.
+
 ## Rights records
 
 Maintain separate auditable grants for original source video/creator-owned elements, broadcast footage, music/sound effects, graphics/fonts/photos/logos, and commentary/voiceover.
