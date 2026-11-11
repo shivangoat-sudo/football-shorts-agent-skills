@@ -7,6 +7,10 @@ description: Use when building football-specific event spotting for goals, shots
 
 Find engaging football moments in authorised match media and produce candidate time windows for an editor. A detector proposes moments; it does not decide legal rights or publish videos.
 
+## Optional URL-level pre-analysis
+
+Where the current Gemini API supports public YouTube URL video input, it may be used to propose rough candidate timestamps from a public source video. Treat this as a coarse discovery signal only: the documented default video sampling is 1 FPS and can miss fast football actions, small ball movements, short contacts and rapid camera cuts. Never use URL-level analysis as the only detector or as the source for rendering. Re-check every candidate against the separately delivered authorised original media at its native frame rate and timestamp origin.
+
 ## Candidate signals
 
 Use independent signals where available: action-spotting model predictions; ball/player movement; scoreboard OCR and score-state changes; replay/camera-shot boundaries; crowd/audio excitement and commentator speech; scene-change patterns; and human feedback from accepted/rejected candidates.
