@@ -32,6 +32,11 @@ A human-readable preview must be available before publication.
 - Preserve enough pre-event build-up and post-event reaction for context.
 - Do not crop away context merely to fill the screen.
 
+## Required companion skills
+
+- `captions-commentary-localization` for timestamp-accurate subtitles and substantive original commentary.
+- `music-licensing-audio` for separate music rights and safe mixing.
+
 ## Audio and captions
 
 Use only music licensed for commercial use, derivative editing, YouTube, territories and intended duration. Keep proof of licence attached to the music asset. Generate captions from speech/transcription, then validate timing and spelling. Duck music under commentary and normalise output using a tested loudness policy. Do not add unlicensed broadcast commentary or sound effects.
