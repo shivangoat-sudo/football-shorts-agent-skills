@@ -1,37 +1,47 @@
 # Staged build sequence and acceptance gates
 
+Implement one phase at a time. Do not jump to public autonomous publishing before all release gates pass.
+
 ## Phase 0 — Architecture and project baseline
 Inspect the existing project and choose a stack based on the hosting target. Create module boundaries, validated configuration, logging, migrations, CI and test conventions. Record architecture decisions for media storage, queue, model usage and deployment.
 Acceptance: clean install, CI green, health check, database migration test and no secrets in the repository.
 
-## Phase 1 — Rights-aware media intake
-Build source-channel registry and rights-holder records. Add authenticated upload or authorised object-storage intake, SHA-256, ffprobe metadata, immutable provenance and retention policy. Store separate grants for source footage, broadcast footage, music, graphics and commentary.
-Acceptance: missing/expired/out-of-scope rights block processing; tampering is detected; audit trail is created.
+## Phase 1 — Source URL intake and channel identity
+Accept supported YouTube channel URLs, @handles, channel IDs and optional video URLs. Resolve through official API methods, show canonical channel name/ID and require confirmation. Separately implement YouTube OAuth connection and verify the exact destination channel ID.
+Acceptance: correct resolution; ambiguous/deleted/private sources fail safely; wrong destination channel blocks uploads; token revocation pauses publishing; duplicate source entries are idempotent.
 
-## Phase 2 — Source monitoring
-Use official YouTube Data API channel/video metadata polling. Store video ID, channel ID, title, published time, watch URL and poll state. Match metadata to separately supplied authorised media.
-Acceptance: new videos discovered idempotently; no downloader or media URL extraction exists; quota and API errors handled.
+## Phase 2 — Rights-aware original media intake
+Build rights-holder records and authenticated upload or approved cloud/provider intake. Store SHA-256, ffprobe metadata, immutable provenance and retention policy. Store separate grants for creator footage, broadcast footage, music, sound effects, graphics, logos, fonts and commentary.
+Acceptance: a YouTube watch URL can never be passed to a media-download adapter; missing/expired/out-of-scope rights block processing; mismatched files are quarantined; tampering is detected; audit trail is created.
 
-## Phase 3 — Football event detection
+## Phase 3 — Source monitoring and media matching
+Use official YouTube Data API channel/video metadata polling. Store video ID, channel ID, title, published time, watch URL and poll state. Optionally use current Gemini public-URL video understanding for analysis-only timestamp discovery where supported. Match to separately delivered authorised media.
+Acceptance: new videos discovered idempotently; no downloader or media URL extraction exists; inaccessible video analysis falls back to authorised media; quota/API errors handled.
+
+## Phase 4 — Football event detection
 Implement scene boundaries, audio energy/crowd excitement, scoreboard OCR and visual action model adapters. Evaluate SoccerNet-compatible models on licensed test footage. Fuse independent signals and calibrate confidence.
-Acceptance: precision/recall and false-positive reports on held-out test data; low-confidence events require review.
+Acceptance: precision/recall and false-positive reports on held-out test data; low-confidence events require review; timestamps are in original-media coordinates.
 
-## Phase 4 — Editing and rendering
-Build versioned edit decision lists, smart crop, captions, licensed music and original analysis overlays. Render vertical output with configurable bitrate, codec, frame rate and audio mix.
-Acceptance: decode check, no black/frozen frames, valid audio, subtitle alignment, correct duration, crop safety and preview generation.
+## Phase 5 — Captions, commentary, music and editing
+Build versioned edit decision lists, smart crop, accurate captions, original analysis/voiceover, separately licensed music and audio mix. Render vertical output with configurable bitrate, codec, frame rate and audio.
+Acceptance: captions remain aligned after edits; meaningful original contribution is present or flagged; every audio asset has rights evidence; unsupported YouTube Shorts music automation is disabled.
 
-## Phase 5 — YouTube publishing
-Implement OAuth consent and minimum scopes, encrypted refresh tokens, resumable upload, metadata, thumbnail, scheduling, retries and reconciliation. Default to private/unlisted during tests.
-Acceptance: duplicate uploads prevented; failed uploads resume safely; no public publish before release gates.
+## Phase 6 — Technical QC and policy preflight
+Validate duration, resolution, frame rate, decode, audio, captions, safe zones, black/frozen frames, duplicate/repetitive output, metadata accuracy, rights and platform-policy risk. Use PASS/REVIEW/BLOCK states.
+Acceptance: rights or known policy failure blocks; uncertainty requires review; no code claims guaranteed acceptance or monetisation.
 
-## Phase 6 — Analytics and learning
+## Phase 7 — YouTube publishing
+Implement OAuth, minimum scopes, encrypted refresh tokens, resumable upload, metadata, thumbnail, scheduling, retries and reconciliation. Default to private/unlisted during tests. Verify exact destination channel before every upload.
+Acceptance: duplicate uploads prevented; failed uploads resume safely; wrong channel, rights failure, QC failure or policy BLOCK prevents publishing; no public publish before release gates.
+
+## Phase 8 — Analytics and learning
 Pull supported first-party analytics reports. Record only metrics actually exposed by the API for the account/report. Track experiments for hook, pacing, captions, music, crop and publication windows.
-Acceptance: no optimisation on tiny samples; uncertainty displayed; rollback and audit trail work.
+Acceptance: no optimisation on tiny samples; uncertainty displayed; unsupported/delayed metrics remain unavailable rather than fabricated.
 
-## Phase 7 — Autonomous operation
+## Phase 9 — Autonomous operation
 Add durable queues, retries/backoff, dead-letter queue, scheduler, watchdog, alerts, cost caps and dashboard for sources, rights, assets, jobs, previews, publishing, analytics and pause/kill switch.
 Acceptance: restart recovery, idempotency, budget ceiling, backup/restore and operational runbook tested.
 
 ## Release gates
 
-No automatic public publishing until all required footage and asset rights are verified, QC passes, private/unlisted upload is tested, channel configuration is approved, failure alerts work and the user explicitly enables the publication policy.
+No automatic public publishing until all required footage and asset rights are verified, policy preflight passes, QC passes, private/unlisted upload is tested, exact channel configuration is approved, failure alerts work and the user explicitly enables the publication policy. YouTube can still apply later claims, restrictions or removals; acceptance cannot be guaranteed.

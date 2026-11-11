@@ -13,6 +13,11 @@ description: Use when implementing official YouTube OAuth, video upload, metadat
 
 Verify current sample paths and repository licence before copying sample code. Do not rely on old defaults without checking current docs.
 
+## Required companion skills
+
+- `channel-identity-and-publish-guard` for verifying the exact OAuth destination channel before every upload.
+- `youtube-policy-preflight` for copyright, reused-content, community-guideline and advertiser-suitability risk review.
+
 ## OAuth and account connection
 
 Use minimum OAuth scopes required for upload and channel management. Explain consent and the channel being connected. Use a secure OAuth callback and state/PKCE protections where supported. Encrypt refresh tokens at rest with managed keys; restrict access to the publishing worker. Never put refresh tokens in frontend code, GitHub, logs, prompt context or plaintext database fields. Provide disconnect/revoke and token-rotation handling.

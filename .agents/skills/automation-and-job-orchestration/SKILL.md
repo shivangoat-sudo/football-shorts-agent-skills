@@ -9,6 +9,10 @@ description: Use when building durable background processing, queues, schedulers
 
 Use durable jobs and explicit state transitions. A web request should enqueue long video processing rather than run a render synchronously.
 
+## Extended workflow skills
+
+The orchestration graph must use the dedicated skills for channel URL intake, authorised media acquisition, captions/commentary, music licensing, YouTube policy preflight and target-channel identity. Keep these as explicit, auditable states.
+
 Typical job graph:
 poll_source → match_authorized_asset → rights_precheck → probe_media → detect_events → rank_candidates → plan_edit → rights_recheck → render → qc → approval → upload → analytics_sync.
 

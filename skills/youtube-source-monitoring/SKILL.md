@@ -5,6 +5,11 @@ description: Use when monitoring approved YouTube channels for new football uplo
 
 # YouTube source-channel monitoring
 
+## Related skills
+
+- `channel-url-intake`: safely resolve a submitted channel/video URL to a confirmed immutable channel ID.
+- `authorized-media-acquisition`: obtain the original media only through a documented authorised delivery route.
+
 ## Critical distinction
 
 YouTube Data API metadata access is not permission to download the underlying video. This subsystem discovers uploads and metadata only. The original video file must arrive separately through a rights-holder-provided upload, approved cloud folder or other explicitly authorised delivery route.
