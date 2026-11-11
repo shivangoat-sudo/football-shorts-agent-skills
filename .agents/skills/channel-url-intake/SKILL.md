@@ -22,7 +22,7 @@ Allow a user to paste a YouTube channel URL or handle and have the system create
 ## Video discovery and viewing
 
 - Use the official YouTube Data API to discover uploads and retrieve permitted metadata.
-- For public videos, optionally use the official Gemini API YouTube-URL video input feature for analysis-only timestamp discovery, but only after checking current availability, model support, API terms, preview limitations, rate limits and billing. It is not a media download or editing source.
+- For public videos, the Gemini API currently documents YouTube URL video input as a preview feature. It can analyse public videos and return timestamped observations; confirm current model/API support, preview status, account eligibility, rate limits and pricing before enabling. This is analysis-only, not a media download or editing source. Default video sampling may be 1 frame per second and can miss fast football actions, so use its output only to propose approximate windows. Precise event detection and all rendering must use the separately delivered authorised original file at its native timestamps/frame rate.
 - Gemini's public-YouTube-URL input does not grant rights to reproduce, edit, store, distribute or monetise the footage.
 - If direct URL analysis is unavailable, private/unlisted video, age-restricted, region-blocked or otherwise inaccessible, mark analysis as unavailable and request authorised media delivery.
 - Do not use browser automation, scraping, yt-dlp, cookies, stream extraction, private endpoints or DRM circumvention to obtain a media file.
