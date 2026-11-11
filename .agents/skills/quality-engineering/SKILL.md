@@ -16,6 +16,10 @@ description: Use when defining tests, evaluation datasets, CI, release gates, ob
 
 Create short synthetic football-like test media with colour bars, moving shapes, generated crowd-like audio and test subtitles. Do not use copyrighted match footage as a CI fixture unless documented rights exist.
 
+## Additional end-to-end coverage
+
+Test channel URL resolution, wrong-channel OAuth identity, YouTube watch-URL non-downloadability, authorised media delivery, music licence scope, caption timing after edits, policy REVIEW/BLOCK decisions, and exact destination-channel confirmation.
+
 ## Required negative tests
 
 Rights missing/expired/revoked; file hash mismatch; unsupported codec/corrupt media; model hallucinated timestamp; API quota exhausted; YouTube upload timeout and uncertain completion; OAuth token revoked; duplicate job/upload; queue restart during render; storage budget exceeded; QC failure.
