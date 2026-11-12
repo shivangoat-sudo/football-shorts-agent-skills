@@ -1,50 +1,46 @@
 ---
 name: video-editing-rendering-qc
-description: Use when ingesting authorised footage, detecting scenes, planning vertical edits, rendering 9:16 videos, generating subtitles, mixing licensed music and running technical video quality checks.
+description: Ingest authorised footage, extract coherent highlight scenes, render 9:16 edits and run technical QC.
 ---
 
-# Video editing, rendering and quality control
+# Video editing and quality control
 
 ## Upstream references
-
 - Agent Video Studio (MIT): https://github.com/MM-mikolajmikolajczak/agent-video-studio
 - PySceneDetect (BSD-3-Clause): https://github.com/Breakthrough/PySceneDetect
 - FFmpeg documentation: https://ffmpeg.org/documentation.html
 
-Use these as implementation references. Do not copy whole repositories blindly. Preserve licence notices if source files are reused. FFmpeg binaries and codecs can have separate licensing implications.
+Use as implementation references; do not copy whole repositories blindly. Preserve notices. FFmpeg binaries/codecs may have separate licensing implications.
 
-## Ingest
+## Authorised ingest
+Accept only original media supplied by a rights holder or approved licensed delivery. A YouTube watch URL is not an editable asset. Compute SHA-256, preserve the original, run ffprobe and record duration, dimensions, frame rate, codecs, audio streams and rotation. Generate a proxy; keep source, proxy, EDL and export immutable/versioned.
 
-Accept only a file supplied through an authorised rights-holder/user workflow. Compute SHA-256 before processing and preserve the original unchanged. Run ffprobe and record duration, dimensions, frame rate, codecs, audio streams and rotation metadata. Generate a low-resolution proxy. Keep source, proxy, edit decision list and export as separate immutable/versioned assets.
+## Highlight-first editing
+For channels publishing highlight compilations, follow `highlight-scene-segmentation`.
+- Extract each complete coherent highlight as its own clip.
+- One clip = one source file + one contiguous source interval. Never join unrelated timestamps or matches.
+- About 20 seconds is a target, not a hard limit; preserve the full action and outcome.
+- Camera cuts/replays of the same incident are related shots, not automatically new events.
+- New match or unrelated incident = separate event group.
+- Uncertain boundaries/replay identity => REVIEW.
 
-## Edit plan
+## Edit decision list
+Versioned JSON EDL includes source ID/hash, source in/out, event group/evidence, crop keyframes, caption timings, licensed music ID/rights, audio targets, overlays/attribution, render profile and software versions. Every segment references one source asset and one contiguous interval; a final Short may contain multiple segments only when the editorial theme and coherence rationale are explicit. Provide a human-readable preview/contact sheet.
 
-Represent each clip as a versioned JSON edit decision list containing source asset ID/hash, source in/out timestamps, event candidate ID, crop/reframe keyframes, caption segments/timing, licensed music asset ID and permitted-use record, audio ducking/loudness targets, overlays/attribution, render profile and software versions.
+## Vertical video and action containment
+- Default 1080x1920, 9:16, 30 fps; configurable.
+- Prefer ball/player-aware reframing over blind centre crop.
+- Track ball and active players across the full event; smooth crop motion and use look-ahead.
+- Measure whether ball, relevant players and goal/action area remain visible throughout.
+- If a portrait crop cannot preserve action, use adaptive wider view with blurred/neutral side fill or REVIEW. Never crop away the decisive action or stretch the image.
+- Keep captions in platform safe zones and away from ball/goalmouth/scoreboard.
+- Preserve pre-event build-up and post-event reaction.
 
-A human-readable preview must be available before publication.
-
-## Vertical video
-
-- Default target: 1080x1920, 9:16, 30 fps; make configurable.
-- Prefer subject-aware reframing over blind centre crop.
-- Track the ball, active players and scoreboard when feasible.
-- Keep captions inside platform safe zones and avoid covering the ball or score.
-- Preserve enough pre-event build-up and post-event reaction for context.
-- Do not crop away context merely to fill the screen.
-
-## Required companion skills
-
-- `captions-commentary-localization` for timestamp-accurate subtitles and substantive original commentary.
-- `music-licensing-audio` for separate music rights and safe mixing.
-
-## Audio and captions
-
-Use only music licensed for commercial use, derivative editing, YouTube, territories and intended duration. Keep proof of licence attached to the music asset. Generate captions from speech/transcription, then validate timing and spelling. Duck music under commentary and normalise output using a tested loudness policy. Do not add unlicensed broadcast commentary or sound effects.
+## Audio, captions and original contribution
+Use only separately licensed music with documented commercial/derivative/YouTube/territory scope. Validate caption timing and spelling. Do not add unlicensed broadcast commentary or SFX. Cropping, captions and music alone may not be sufficient original contribution for monetisation; require meaningful original analysis/commentary or flag for review.
 
 ## Rendering and QC
-
-Use FFmpeg via argument arrays/subprocess without shell interpolation. Never overwrite source files or an existing export silently. Validate output with ffprobe and a full decode pass. Check duration, dimensions, frame rate, pixel format, audio presence, clipping, black/frozen frames and subtitle coverage. Produce contact sheets and an audio preview; automated QC does not replace visual/audio review. Store renderer version, parameters, output SHA-256 and QC report.
+Use FFmpeg via argument arrays/subprocess, never shell interpolation. Do not overwrite sources/exports silently. Validate with ffprobe and full decode. Check duration, dimensions, frame rate, pixel format, audio, clipping, black/frozen frames, subtitle coverage, crop containment, event-boundary integrity and duplicate status. Store renderer version, parameters, output hash and QC report.
 
 ## Acceptance tests
-
-Missing/malformed/truncated input is rejected; output collision is safely rejected/versioned; output matches configured profile and duration; render fully decodes; audio/captions are valid; source hash remains unchanged; QC failure blocks upload.
+Missing/malformed/truncated input rejected; one source + one contiguous interval per clip; unrelated scenes/matches never concatenated; coherent actions not cut mid-event; output 1080x1920 without stretching; ball/player action remains visible or safe padding/review used; output fully decodes; source hash unchanged; boundary/crop/rights QC failure blocks upload.
