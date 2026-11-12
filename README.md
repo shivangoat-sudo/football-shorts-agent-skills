@@ -8,7 +8,7 @@ This repository is a build-time knowledge pack, not a running application or a m
 
 Start with [AI_STUDIO_SETUP.md](AI_STUDIO_SETUP.md) to import the private repository into Build mode or mount it in the Agents playground. Use [AI_STUDIO_BUILD_BRIEF.md](AI_STUDIO_BUILD_BRIEF.md) as the initial build instruction.
 
-The canonical 16 skill files live under skills/. Matching copies are mirrored under .agents/skills/ for agent discovery. GitHub Actions checks that both copies stay identical.
+The canonical 17 skill files live under skills/. Matching copies are mirrored under .agents/skills/ for agent discovery. GitHub Actions checks that both copies stay identical.
 
 AI Studio does not execute arbitrary code merely because a skill file exists. The files provide instructions and references; the builder still needs to implement, configure, test and host the integrations.
 
@@ -18,6 +18,7 @@ AI Studio does not execute arbitrary code merely because a skill file exists. Th
 |---|---|
 | google-ai-studio-gemini | Gemini API, multimodal analysis, structured outputs and cost discipline |
 | football-event-detection | Goals, chances, actions, multimodal evidence fusion and SoccerNet |
+| highlight-scene-segmentation | Preserve complete highlight scenes, group replays and prevent cross-match clip stitching |
 | video-editing-rendering-qc | FFmpeg, scene detection, portrait reframing, subtitles and QC |
 | youtube-source-monitoring | Authorized channel monitoring and metadata intake |
 | youtube-publishing | OAuth, uploads, metadata, thumbnails and scheduling |
