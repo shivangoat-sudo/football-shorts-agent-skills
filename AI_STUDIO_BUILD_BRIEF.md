@@ -17,8 +17,9 @@ Before coding:
 - Optionally analyse an accessible public YouTube URL through the currently supported Gemini video-understanding feature for candidate timestamps only. Check current API support and terms; do not treat this as a media download.
 - Obtain the original editable file separately from a rights holder, licensed provider or approved cloud delivery route.
 - Verify provenance and separate rights for footage, broadcast, music, graphics, fonts, logos, voice and commentary.
-- Detect football moments and create a versioned edit decision list.
-- Render a 9:16 Short with intelligent reframing, accurate captions, meaningful original analysis/commentary and separately licensed music.
+- For highlight-only source channels, segment each complete coherent incident as one contiguous clip; group replays of the same incident, separate different matches, never stitch unrelated scenes, and target about 20 seconds without cutting actions to a fixed duration.
+- Create a versioned edit decision list with ball/player-aware 9:16 crop keyframes; preserve the action in frame or use safe side-fill/review.
+- Render each highlight as its own 9:16 Short with intelligent ball/player-aware reframing, accurate captions, meaningful original analysis/commentary and separately licensed music. Use 1080x1920 by default; do not stretch or crop away decisive action.
 - Run technical QC and platform-policy risk preflight.
 - Verify the exact OAuth-connected destination channel.
 - Publish through the official YouTube Data API only after all release gates pass.
