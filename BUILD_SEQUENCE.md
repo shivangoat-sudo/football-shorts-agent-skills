@@ -18,13 +18,13 @@ Acceptance: a YouTube watch URL can never be passed to a media-download adapter;
 Use official YouTube Data API channel/video metadata polling. Store video ID, channel ID, title, published time, watch URL and poll state. Optionally use current Gemini public-URL video understanding for analysis-only timestamp discovery where supported. Match to separately delivered authorised media.
 Acceptance: new videos discovered idempotently; no downloader or media URL extraction exists; inaccessible video analysis falls back to authorised media; quota/API errors handled.
 
-## Phase 4 — Football event detection
-Implement scene boundaries, audio energy/crowd excitement, scoreboard OCR and visual action model adapters. Evaluate SoccerNet-compatible models on licensed test footage. Fuse independent signals and calibrate confidence.
-Acceptance: precision/recall and false-positive reports on held-out test data; low-confidence events require review; timestamps are in original-media coordinates.
+## Phase 4 — Football event detection and highlight-scene segmentation
+Classify sources as highlight compilations or full matches. For highlight channels, segment complete coherent incidents, group replay angles of the same incident, separate different matches/events and produce one contiguous source interval per output. Camera cuts are shot boundaries, not automatic event boundaries. Add audio/crowd, scoreboard/context OCR and football action-spotting adapters. Treat SoccerNet event timestamps as anchors, not clip boundaries. Fuse independent signals and calibrate confidence.
+Acceptance: synthetic multi-match compilations never produce cross-match clips; replays link correctly; continuous actions survive camera cuts; no unrelated timestamps are stitched; held-out precision/recall and false-positive reports exist; uncertain events require review; timestamps stay in original-media coordinates.
 
-## Phase 5 — Captions, commentary, music and editing
-Build versioned edit decision lists, smart crop, accurate captions, original analysis/voiceover, separately licensed music and audio mix. Render vertical output with configurable bitrate, codec, frame rate and audio.
-Acceptance: captions remain aligned after edits; meaningful original contribution is present or flagged; every audio asset has rights evidence; unsupported YouTube Shorts music automation is disabled.
+## Phase 5 — Captions, commentary, music and highlight-preserving editing
+Build versioned EDLs with one source asset and one contiguous interval per highlight. Preserve complete events (about 20 seconds by default, not a hard cap), track ball/players, and use safe padding or review when 9:16 cannot contain the action. Add accurate captions, original analysis/voiceover, separately licensed music and audio mix. Render vertical output with configurable bitrate, codec, frame rate and audio.
+Acceptance: unrelated scenes are never concatenated; coherent actions are not cut mid-event; action containment is measured throughout; captions align; original contribution is present or flagged; all audio has rights evidence; unsupported Shorts music automation is disabled.
 
 ## Phase 6 — Technical QC and policy preflight
 Validate duration, resolution, frame rate, decode, audio, captions, safe zones, black/frozen frames, duplicate/repetitive output, metadata accuracy, rights and platform-policy risk. Use PASS/REVIEW/BLOCK states.
