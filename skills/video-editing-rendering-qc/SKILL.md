@@ -25,7 +25,7 @@ For channels publishing highlight compilations, follow `highlight-scene-segmenta
 - Uncertain boundaries/replay identity => REVIEW.
 
 ## Edit decision list
-Versioned JSON EDL includes source ID/hash, source in/out, event group/evidence, crop keyframes, caption timings, licensed music ID/rights, audio targets, overlays/attribution, render profile and software versions. Every export references exactly one source asset and one contiguous interval. Provide a human-readable preview/contact sheet.
+Versioned JSON EDL includes source ID/hash, source in/out, event group/evidence, crop keyframes, caption timings, licensed music ID/rights, audio targets, overlays/attribution, render profile and software versions. Every segment references one source asset and one contiguous interval; a final Short may contain multiple segments only when the editorial theme and coherence rationale are explicit. Provide a human-readable preview/contact sheet.
 
 ## Vertical video and action containment
 - Default 1080x1920, 9:16, 30 fps; configurable.
