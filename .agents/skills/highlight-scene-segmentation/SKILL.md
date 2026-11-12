@@ -1,20 +1,21 @@
 ---
 name: highlight-scene-segmentation
-description: Extract each complete, coherent football highlight from edited highlight compilations as one standalone clip.
+description: Detect, rank and select high-quality football moments from edited highlight compilations for single-moment Shorts or coherent curated montages.
 ---
 
 # Highlight scene segmentation
 
 ## Product assumption
-The monitored source channel primarily publishes already-edited football highlight compilations, not full uninterrupted matches. The job is highlight extraction and reframing, not arbitrary highlight discovery across a full match. Target duration is about 20 seconds (configurable; default acceptable range 12–35 seconds), but duration is evidence-driven, never a hard trim.
+The monitored source channel primarily publishes already-edited football highlight compilations, not full uninterrupted matches. The job is highlight extraction and reframing, not arbitrary highlight discovery across a full match. A Short should aim for about 20 seconds; a little shorter or longer is acceptable. Select the strongest footage that fits rather than forcing an exact duration.
 
 ## Non-negotiable clip integrity
-- Every output is exactly one coherent football incident from one continuous source interval.
-- Never concatenate unrelated scenes, different matches, players/actions or distant timestamps to reach a target duration.
-- Each exported clip has one `source_asset_id`, one `in_time`, one `out_time`, and `out_time > in_time`.
-- Preserve enough lead-in to understand the action and enough aftermath to see the outcome/reaction.
-- Never cut during an ongoing dribble, shot, save, goal, tackle or celebration merely to hit 20 seconds.
-- Uncertain boundaries or match identity => REVIEW, never guess or stitch.
+- Detect and score each coherent football moment as its own candidate with a contiguous source interval.
+- A Short may contain one standout moment OR multiple carefully selected moments in a coherent, deliberate themed montage.
+- Never add random filler or combine moments without a clear editorial connection (for example, same player, same match, same team, same skill/theme, or a clear story progression).
+- Keep every selected moment's source in/out boundaries intact; each segment has one source asset and one contiguous interval.
+- Preserve enough lead-in and aftermath for each selected moment to make sense.
+- Never cut a decisive action mid-flight merely to hit 20 seconds.
+- If coherence, event identity or quality is uncertain, omit the moment or route to REVIEW; do not guess.
 - Rights/provenance checks remain independent and must pass before render/publish.
 
 ## Shot cuts are not automatically highlight boundaries
@@ -34,10 +35,19 @@ Start a new event/match group on strong evidence of a new incident or match: tit
 9. Score boundary confidence, event confidence, completeness, crop feasibility, duplicate status and rights status separately.
 10. Emit a reviewable EDL with evidence, model versions and boundary confidence.
 
+## Quality-first Short selection
+1. Rank candidate moments by action clarity, excitement, technical quality, visual readability, narrative completeness, novelty and crop feasibility.
+2. Prefer the strongest single moment when it makes a satisfying Short near 20 seconds.
+3. If one moment is too short or several strong moments form a clear theme/story, select multiple candidates as a curated montage.
+4. A montage must carry an explicit editorial theme and machine-readable coherence rationale. Examples: one player's best dribbles, one match's decisive attacks, a sequence of saves, or a clear before/after story.
+5. Do not fill remaining seconds with weak footage. A high-quality 14-second Short is better than a padded 20-second Short; a compelling 23-second edit is acceptable.
+6. Preserve each selected segment's original boundaries and order them for understandable pacing. Cross-match selections require a clear theme (such as one player's season highlights); otherwise keep matches separate.
+7. Store per-moment quality scores, selection rationale, total runtime and rejected-candidate reasons.
+
 ## Boundary policy
 - 20 seconds is a target, not a hard cap.
-- A coherent 9-second action is not padded with another event.
-- A coherent 28-second action is retained if shortening it removes the outcome/reaction.
+- A strong 9-second moment may be combined with another clearly related high-quality moment; it is never padded with unrelated footage.
+- A coherent 28-second action is retained if shortening it removes the outcome/reaction, or may be shortened only at a natural boundary.
 - Preserve clean source highlight boundaries unless evidence shows they are wrong.
 - Split a montage of unrelated moments only at confident event boundaries, yielding separate outputs.
 - Keep pre-roll/post-roll where available; never cut decisive contact, shot trajectory, save or immediate result.
