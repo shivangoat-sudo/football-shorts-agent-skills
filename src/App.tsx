@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import ShortsEditor from "./components/ShortsEditor";
 import YouTubePublishPanel from "./components/YouTubePublishPanel";
+import AIVideoStudio from "./components/AIVideoStudio";
 import type { ExportedShortResult } from "./lib/shortExporter";
 import {
   fetchAuthenticatedChannels,
@@ -53,6 +54,7 @@ export default function App() {
   const [resolvingSource, setResolvingSource] = useState(false);
 
   const [stage, setStage] = useState<Stage>("source");
+  const [aiStudioOpen, setAiStudioOpen] = useState(false);
   const [notice, setNotice] = useState(
     "Werkruimte gereed. Koppel een kanaalbron of open direct de Shorts-editor."
   );
@@ -259,7 +261,7 @@ export default function App() {
                 key={step.id}
                 type="button"
                 className={`nav-item ${active ? "is-active" : ""}`}
-                onClick={() => setStage(step.id)}
+                onClick={() => { setAiStudioOpen(false); setStage(step.id); }}
                 aria-current={active ? "step" : undefined}
               >
                 <span className={`nav-index ${done ? "is-done" : ""}`}>
@@ -294,7 +296,7 @@ export default function App() {
             <span className="sep" aria-hidden="true">
               /
             </span>
-            <span className="crumb-current">Podcast Shorts</span>
+            <span className="crumb-current">{aiStudioOpen ? "AI Video Studio" : "Podcast Shorts"}</span>
           </div>
           <div className="topbar-meta">
             <span>
@@ -306,7 +308,7 @@ export default function App() {
         </header>
 
         <main className="main-container">
-          <div className="page-header">
+          {aiStudioOpen ? <AIVideoStudio /> : (\n            <>\n          <div className="page-header">
             <div className="step-kicker">
               Stap {currentStep.number} van 03 · {currentStep.label}
             </div>
@@ -583,7 +585,7 @@ export default function App() {
               <span className="overview-state">Lokaal</span>
             </div>
           </section>
-        </main>
+            </>\n          )}\n        </main>
       </div>
     </div>
   );
