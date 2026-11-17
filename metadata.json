@@ -1,0 +1,8 @@
+{
+  "name": "Touchline Studio",
+  "description": "Podcast en spoken-word YouTube Shorts & TikTok virality editor.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

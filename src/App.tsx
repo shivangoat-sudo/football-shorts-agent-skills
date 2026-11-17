@@ -1,68 +1,590 @@
-import { useMemo, useState } from "react";
-import { Activity, ArrowRight, Check, ChevronDown, CircleAlert, Clapperboard, FileVideo2, Film, LockKeyhole, Play, Radio, ShieldCheck, Sparkles, Upload, Youtube } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import type { User } from "firebase/auth";
+import {
+  Activity,
+  ArrowLeft,
+  ArrowRight,
+  Check,
+  Info,
+  LockKeyhole,
+  Radio,
+  Search,
+  ShieldCheck,
+  Youtube,
+} from "lucide-react";
+import ShortsEditor from "./components/ShortsEditor";
+import YouTubePublishPanel from "./components/YouTubePublishPanel";
+import type { ExportedShortResult } from "./lib/shortExporter";
+import {
+  fetchAuthenticatedChannels,
+  fetchChannelWithRecentVideos,
+  type YouTubeChannelInfo,
+  type YouTubeVideoItem,
+} from "./lib/youtubeApi";
+import {
+  initYouTubeAuth,
+  signInWithYouTube,
+  signOutYouTube,
+} from "./lib/youtubeAuth";
 
-type Stage = "source" | "rights" | "edit" | "publish";
+type Stage = "source" | "edit" | "publish";
+
+interface StepConfig {
+  id: Stage;
+  label: string;
+  number: string;
+  summary: string;
+}
+
+const STEPS: StepConfig[] = [
+  { id: "source", label: "Bron", number: "01", summary: "Podcastbron" },
+  { id: "edit", label: "Shorts-editor", number: "02", summary: "Hooks & 9:16" },
+  { id: "publish", label: "Publiceren", number: "03", summary: "YouTube-koppeling" },
+];
+
 export default function App() {
   const [channel, setChannel] = useState("");
-  const [sourceUrl, setSourceUrl] = useState("");
-  const [rightsConfirmed, setRightsConfirmed] = useState(false);
+  const [resolvedSource, setResolvedSource] = useState<YouTubeChannelInfo | null>(
+    null
+  );
+  const [sourceVideos, setSourceVideos] = useState<YouTubeVideoItem[]>([]);
+  const [selectedSourceVideo, setSelectedSourceVideo] =
+    useState<YouTubeVideoItem | null>(null);
+  const [resolvingSource, setResolvingSource] = useState(false);
+
   const [stage, setStage] = useState<Stage>("source");
-  const [notice, setNotice] = useState("Workspace ready. Connect a source to begin.");
-  const validChannel = useMemo(() => /youtube\.com\/(channel\/|@)|youtu\.be\//i.test(channel.trim()), [channel]);
-  const steps: {id:Stage; label:string; number:string}[] = [
-    {id:"source",label:"Source",number:"01"},{id:"rights",label:"Rights check",number:"02"},{id:"edit",label:"Shorts editor",number:"03"},{id:"publish",label:"Publish",number:"04"}
-  ];
-  function connectSource() {
-    if (!channel.trim()) { setNotice("Enter a YouTube channel URL or @handle first."); return; }
-    setNotice("Source saved locally. YouTube API connection is not configured yet.");
-    setStage("rights");
+  const [notice, setNotice] = useState(
+    "Werkruimte gereed. Koppel een kanaalbron of open direct de Shorts-editor."
+  );
+
+  const [videoFile, setVideoFile] = useState<File | null>(null);
+  const [videoUrl, setVideoUrl] = useState<string | null>(null);
+  const [exportedShort, setExportedShort] = useState<ExportedShortResult | null>(
+    null
+  );
+
+  // YouTube OAuth state (access token cached in memory only)
+  const [authUser, setAuthUser] = useState<User | null>(null);
+  const [accessToken, setAccessToken] = useState<string | null>(null);
+  const [myChannels, setMyChannels] = useState<YouTubeChannelInfo[]>([]);
+  const [confirmedChannelId, setConfirmedChannelId] = useState<string | null>(
+    null
+  );
+  const [isAuthenticating, setIsAuthenticating] = useState(false);
+
+  useEffect(() => {
+    const unsubscribe = initYouTubeAuth(
+      (user, token) => {
+        setAuthUser(user);
+        setAccessToken(token);
+      },
+      (user) => {
+        setAuthUser(user);
+        setAccessToken(null);
+        setMyChannels([]);
+        setConfirmedChannelId(null);
+      }
+    );
+    return unsubscribe;
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (videoUrl) URL.revokeObjectURL(videoUrl);
+    };
+  }, [videoUrl]);
+
+  useEffect(() => {
+    return () => {
+      if (exportedShort?.url) URL.revokeObjectURL(exportedShort.url);
+    };
+  }, [exportedShort]);
+
+  const validChannel = useMemo(() => {
+    const trimmed = channel.trim();
+    if (!trimmed) return false;
+    return (
+      /youtube\.com\/(channel\/|@|c\/)|youtu\.be\//i.test(trimmed) ||
+      /^@[a-zA-Z0-9._-]{3,}$/.test(trimmed)
+    );
+  }, [channel]);
+
+  const currentStepIndex = STEPS.findIndex((s) => s.id === stage);
+  const currentStep = STEPS[currentStepIndex];
+
+  const sourceCompleted = channel.trim().length > 0;
+  const editCompleted = exportedShort !== null;
+
+  function isStepDone(id: Stage): boolean {
+    if (id === "source") return sourceCompleted && stage !== "source";
+    if (id === "edit") return editCompleted && stage !== "edit";
+    return false;
   }
-  function startReview() {
-    if (!rightsConfirmed) { setNotice("Confirm that you own or have permission to use the footage before continuing."); return; }
-    if (!sourceUrl.trim()) { setNotice("Add the path or reference for your licensed original video file."); return; }
-    setNotice("Rights declaration recorded for this session. Media processing backend is not connected yet.");
+
+  async function handleYouTubeSignIn() {
+    setIsAuthenticating(true);
+    try {
+      const { user, accessToken: token } = await signInWithYouTube();
+      setAuthUser(user);
+      setAccessToken(token);
+      const channels = await fetchAuthenticatedChannels(token);
+      setMyChannels(channels);
+      setConfirmedChannelId(null);
+      if (channels.length > 0) {
+        setNotice(
+          `Google-account gekoppeld (${channels.length} kanaal/kanalen gevonden). Bevestig je doelkanaal.`
+        );
+      } else {
+        setNotice("Ingelogd bij Google, maar geen YouTube-kanaal gevonden.");
+      }
+    } catch (err) {
+      const msg =
+        err instanceof Error ? err.message : "Koppelen met YouTube is mislukt.";
+      setNotice(msg);
+    } finally {
+      setIsAuthenticating(false);
+    }
+  }
+
+  async function handleYouTubeSignOut() {
+    await signOutYouTube();
+    setAuthUser(null);
+    setAccessToken(null);
+    setMyChannels([]);
+    setConfirmedChannelId(null);
+    setNotice("YouTube-koppeling verbroken.");
+  }
+
+  function handleConfirmChannel(channelId: string) {
+    setConfirmedChannelId(channelId);
+    const ch = myChannels.find((c) => c.id === channelId);
+    setNotice(
+      ch
+        ? `Doelkanaal bevestigd: ${ch.title} (${ch.id}).`
+        : "Doelkanaal bevestigd."
+    );
+  }
+
+  async function handleResolveSource() {
+    if (!channel.trim()) {
+      setNotice("Vul eerst een YouTube-kanaal-URL of @handle in.");
+      return;
+    }
+    if (!accessToken) {
+      setNotice(
+        "Koppel eerst je YouTube-account (bij Publiceren) om video's op dit kanaal te bekijken."
+      );
+      return;
+    }
+    setResolvingSource(true);
+    try {
+      const res = await fetchChannelWithRecentVideos(accessToken, channel, 8, 181);
+      setResolvedSource(res?.channel || null);
+      setSourceVideos(res?.videos || []);
+      setSelectedSourceVideo(null);
+      if (res?.channel) {
+        setNotice(
+          res.videos.length > 0
+            ? `Kanaal gevonden: ${res.channel.title} (${res.videos.length} lange video's > 3 min geladen).`
+            : `Kanaal gevonden: ${res.channel.title}, maar geen lange video's (> 3 min) in de recente uploads gevonden.`
+        );
+      } else {
+        setNotice("Geen passend YouTube-kanaal gevonden voor deze invoer.");
+      }
+    } catch (err) {
+      const msg =
+        err instanceof Error ? err.message : "Kanaal controleren mislukt.";
+      setNotice(msg);
+    } finally {
+      setResolvingSource(false);
+    }
+  }
+
+  function connectSource() {
+    if (!channel.trim()) {
+      setNotice("Vul eerst een YouTube-kanaal-URL of @handle in.");
+      return;
+    }
+    setNotice(
+      "Bron lokaal opgeslagen voor deze sessie. Kies nu een videobestand in de editor."
+    );
     setStage("edit");
   }
-  return <main className="shell">
-    <aside className="sidebar">
-      <div className="brand"><div className="brand-mark"><Activity size={21}/></div><div><b>TOUCHLINE</b><span>STUDIO</span></div></div>
-      <div className="workspace-label">WORKSPACE</div>
-      <nav>{steps.map((s)=><button key={s.id} className={stage===s.id?"nav-item active":"nav-item"} onClick={()=>setStage(s.id)}><span className="nav-number">{s.number}</span>{s.label}{stage===s.id&&<span className="nav-dot"/>}</button>)}</nav>
-      <div className="sidebar-bottom"><div className="secure"><LockKeyhole size={15}/><span>Rights-first workflow</span></div><div className="version">BUILD 0.1.0 · PREVIEW</div></div>
-    </aside>
-    <section className="main">
-      <header className="topbar"><div className="crumb">PROJECTS <span>/</span> FOOTBALL SHORTS</div><div className="top-right"><span className="status"><i/> DEVELOPMENT MODE</span><div className="avatar">TS</div></div></header>
-      <div className="content">
-        <div className="eyebrow"><span/> FOOTBALL CONTENT WORKFLOW</div>
-        <div className="heading-row"><div><h1>Make every moment<br/><em>count.</em></h1><p className="subhead">A focused workspace for creating original, rights-cleared football Shorts.</p></div><div className="hero-icon"><Clapperboard size={31}/><span>SHORT-FORM<br/>PRODUCTION</span></div></div>
-        <div className="stepper">{steps.map((s,i)=><div className={stage===s.id?"step current":"step"} key={s.id}><span>{s.number}</span><b>{s.label}</b>{i<3&&<div className="step-line"/>}</div>)}</div>
-        {stage==="source"&&<section className="panel">
-          <div className="panel-title"><div className="panel-icon"><Youtube size={19}/></div><div><h2>Connect your football source</h2><p>Start with the channel you want to monitor.</p></div></div>
-          <label>YouTube channel URL or @handle</label>
-          <div className="input-wrap"><Youtube size={17}/><input value={channel} onChange={e=>setChannel(e.target.value)} placeholder="https://youtube.com/@yourchannel"/></div>
-          <div className="hint">Use a channel URL, channel ID URL, or @handle. This starter UI stores it only in this browser session.</div>
-          <div className="panel-actions"><span className="muted"><ShieldCheck size={15}/> No scraping or stream extraction</span><button className="primary" onClick={connectSource}>Save source <ArrowRight size={16}/></button></div>
-        </section>}
-        {stage==="rights"&&<section className="panel">
-          <div className="panel-title"><div className="panel-icon"><ShieldCheck size={19}/></div><div><h2>Verify your footage rights</h2><p>A YouTube link identifies content; it does not grant editing rights.</p></div></div>
-          <label>Original video file / approved media reference</label>
-          <div className="input-wrap"><FileVideo2 size={17}/><input value={sourceUrl} onChange={e=>setSourceUrl(e.target.value)} placeholder="e.g. licensed-match-footage.mp4 or media asset ID"/></div>
-          <label className="check-row"><input type="checkbox" checked={rightsConfirmed} onChange={e=>setRightsConfirmed(e.target.checked)}/><span>I own this footage or have explicit permission/licensing to edit and publish it.</span></label>
-          <div className="warning"><CircleAlert size={17}/><span>Broadcast footage, music, club marks and graphics may each require separate permission. This app will not download footage from YouTube.</span></div>
-          <div className="panel-actions"><button className="ghost" onClick={()=>setStage("source")}>Back</button><button className="primary" onClick={startReview}>Continue to editor <ArrowRight size={16}/></button></div>
-        </section>}
-        {stage==="edit"&&<section className="panel">
-          <div className="panel-title"><div className="panel-icon"><Film size={19}/></div><div><h2>Shorts editor</h2><p>Your editing workspace will be connected here.</p></div></div>
-          <div className="empty-editor"><div className="play-circle"><Play size={24}/></div><b>No media processed yet</b><span>Once the licensed media upload and FFmpeg worker are connected, detected moments and vertical previews will appear here.</span></div>
-          <div className="feature-grid"><div><Sparkles/><b>Moment detection</b><span>Find goals, saves and key actions</span></div><div><FileVideo2/><b>Vertical reframing</b><span>Keep the play visible at 9:16</span></div><div><Activity/><b>Quality checks</b><span>Captions, audio and export checks</span></div></div>
-          <div className="panel-actions"><button className="ghost" onClick={()=>setStage("rights")}>Back</button><button className="primary" onClick={()=>setNotice("Editor backend is not configured. No video has been processed.")}>Check editor status <ArrowRight size={16}/></button></div>
-        </section>}
-        {stage==="publish"&&<section className="panel"><div className="panel-title"><div className="panel-icon"><Radio size={19}/></div><div><h2>Publishing is locked</h2><p>Public publishing stays disabled until all checks pass.</p></div></div><div className="empty-editor"><LockKeyhole size={30}/><b>Development / review mode</b><span>YouTube OAuth, channel identity verification, rights approval and final QC must be configured before publishing can be enabled.</span></div></section>}
-        <div className="notice"><span className="notice-dot"/>{notice}</div>
-        <div className="bottom-grid"><div className="mini-card"><div className="mini-head"><span>PIPELINE STATUS</span><ChevronDown size={15}/></div><div className="pipeline"><span className="pipeline-step done"><Check size={13}/></span><div><b>App shell</b><small>Loaded locally</small></div><span className="tag green">READY</span></div><div className="pipeline"><span className="pipeline-step pending">2</span><div><b>External services</b><small>YouTube / Gemini / media worker</small></div><span className="tag">NOT CONNECTED</span></div></div>
-          <div className="mini-card safety"><div className="mini-head"><span>SAFETY BY DESIGN</span><ShieldCheck size={16}/></div><p>Rights checks fail closed. No automatic public uploads in development. No hidden downloads or scraping.</p><div className="safety-foot"><LockKeyhole size={13}/> PRIVATE BY DEFAULT</div></div></div>
-        <footer>TOUCHLINE STUDIO <span>·</span> AN EARLY WORKING SHELL <span>·</span> NOT YET CONNECTED TO PROCESSING SERVICES</footer>
+
+  function handleSelectVideo(file: File) {
+    const nextUrl = URL.createObjectURL(file);
+    setVideoFile(file);
+    setVideoUrl(nextUrl);
+    setExportedShort(null);
+  }
+
+  function handleExportComplete(result: ExportedShortResult) {
+    setExportedShort(result);
+  }
+
+  const confirmedChannel =
+    myChannels.find((c) => c.id === confirmedChannelId) || null;
+
+  return (
+    <div className="app-shell">
+      <svg className="sr-only" aria-hidden="true">
+        <defs>
+          <filter id="touchline-sharpen" x="0%" y="0%" width="100%" height="100%">
+            <feConvolveMatrix
+              order="3"
+              kernelMatrix="0 -0.25 0 -0.25 2.0 -0.25 0 -0.25 0"
+              preserveAlpha="true"
+            />
+          </filter>
+        </defs>
+      </svg>
+      <aside className="sidebar" aria-label="Werkstroomnavigatie">
+        <div className="brand">
+          <div className="brand-mark" aria-hidden="true">
+            <Activity size={18} strokeWidth={2} />
+          </div>
+          <div className="brand-text">
+            <span className="brand-name">Touchline</span>
+            <span className="brand-sub">Studio</span>
+          </div>
+        </div>
+
+        <div className="sidebar-section-label">Werkstroom</div>
+        <nav className="sidebar-nav">
+          {STEPS.map((step) => {
+            const active = stage === step.id;
+            const done = isStepDone(step.id);
+            return (
+              <button
+                key={step.id}
+                type="button"
+                className={`nav-item ${active ? "is-active" : ""}`}
+                onClick={() => setStage(step.id)}
+                aria-current={active ? "step" : undefined}
+              >
+                <span className={`nav-index ${done ? "is-done" : ""}`}>
+                  {done ? <Check size={12} strokeWidth={2.5} /> : step.number}
+                </span>
+                <span className="nav-copy">
+                  <span className="nav-label">{step.label}</span>
+                  <span className="nav-summary">{step.summary}</span>
+                </span>
+              </button>
+            );
+          })}
+        </nav>
+
+        <div className="sidebar-footer">
+          <div className="sidebar-policy">
+            <LockKeyhole size={14} aria-hidden="true" />
+            <span>Lokaal renderen · Gemini AI</span>
+          </div>
+          <div className="sidebar-meta">
+            {confirmedChannel
+              ? `Kanaal: ${confirmedChannel.title}`
+              : "Versie 0.1.0 · Podcast Studio"}
+          </div>
+        </div>
+      </aside>
+
+      <div className="workspace">
+        <header className="topbar">
+          <div className="breadcrumb">
+            <span>Projecten</span>
+            <span className="sep" aria-hidden="true">
+              /
+            </span>
+            <span className="crumb-current">Podcast Shorts</span>
+          </div>
+          <div className="topbar-meta">
+            <span>
+              {confirmedChannel
+                ? `Gekoppeld: ${confirmedChannel.title}`
+                : "Geen YouTube-account gekoppeld"}
+            </span>
+          </div>
+        </header>
+
+        <main className="main-container">
+          <div className="page-header">
+            <div className="step-kicker">
+              Stap {currentStep.number} van 03 · {currentStep.label}
+            </div>
+            <h1>Elke sterke hook direct scherp</h1>
+            <p className="page-subtitle">
+              Extraheer high-retention podcast-fragmenten (15–58s, score ≥ 75)
+              met bewezen hooks, getimede ondertitels en 9:16 spreker-tracking.
+            </p>
+          </div>
+
+          {stage === "source" && (
+            <section className="card" aria-labelledby="stage-source-title">
+              <div className="card-header">
+                <div className="card-icon" aria-hidden="true">
+                  <Youtube size={18} />
+                </div>
+                <div>
+                  <h2 id="stage-source-title">Koppel je podcastkanaal</h2>
+                  <p>
+                    Noteer het YouTube-kanaal dat je volgt, of open direct de
+                    Podcast Shorts-editor om een aflevering te analyseren.
+                  </p>
+                </div>
+              </div>
+
+              <div className="field-group">
+                <label htmlFor="channel-input">YouTube-kanaal-URL of @handle</label>
+                <div className="input-row-with-btn">
+                  <div className="input-box input-flex">
+                    <Youtube size={16} className="input-icon" aria-hidden="true" />
+                    <input
+                      id="channel-input"
+                      type="text"
+                      value={channel}
+                      onChange={(e) => {
+                        setChannel(e.target.value);
+                        setResolvedSource(null);
+                        setSourceVideos([]);
+                        setSelectedSourceVideo(null);
+                      }}
+                      placeholder="https://youtube.com/@jouwkanaal of @jouwkanaal"
+                    />
+                  </div>
+                  {accessToken ? (
+                    <button
+                      type="button"
+                      className="btn-secondary"
+                      onClick={handleResolveSource}
+                      disabled={resolvingSource}
+                    >
+                      <Search size={14} aria-hidden="true" />
+                      {resolvingSource ? "Ophalen..." : "Video's bekijken"}
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      className="btn-secondary"
+                      onClick={() => setStage("publish")}
+                    >
+                      YouTube koppelen
+                    </button>
+                  )}
+                </div>
+                <p className="field-hint">
+                  {channel.trim()
+                    ? validChannel
+                      ? accessToken
+                        ? "Klik op 'Video's bekijken' om de nieuwste uploads van dit kanaal te zien."
+                        : "Koppel eerst je YouTube-account om de uploads van dit kanaal live te bekijken."
+                      : "Gebruik een volledige youtube.com-kanaal-URL of een @handle."
+                    : "Ondersteunt kanaal-URL's, kanaal-ID's of @handles."}
+                </p>
+
+                {resolvedSource && (
+                  <div className="resolved-source-row">
+                    {resolvedSource.thumbnailUrl && (
+                      <img
+                        src={resolvedSource.thumbnailUrl}
+                        alt={resolvedSource.title}
+                        referrerPolicy="no-referrer"
+                      />
+                    )}
+                    <div>
+                      <strong>{resolvedSource.title}</strong>
+                      <span>
+                        {resolvedSource.customUrl
+                          ? `${resolvedSource.customUrl} · `
+                          : ""}
+                        {resolvedSource.id}
+                      </span>
+                    </div>
+                  </div>
+                )}
+
+                {sourceVideos.length > 0 && (
+                  <div className="source-videos-block">
+                    <div className="source-videos-head">
+                      <span>Recente lange video&apos;s (&gt; 3 min)</span>
+                      <span>Kies het originele videobestand hierna in de editor</span>
+                    </div>
+                    <div className="source-videos-list">
+                      {sourceVideos.map((vid) => (
+                        <button
+                          key={vid.id}
+                          type="button"
+                          className={`source-video-row ${
+                            selectedSourceVideo?.id === vid.id ? "is-selected" : ""
+                          }`}
+                          onClick={() => {
+                            setSelectedSourceVideo(vid);
+                            setNotice(
+                              `Video geselecteerd: '${vid.title}'. Kies nu het videobestand in de Shorts-editor.`
+                            );
+                            setStage("edit");
+                          }}
+                        >
+                          {vid.thumbnailUrl && (
+                            <img
+                              src={vid.thumbnailUrl}
+                              alt={vid.title}
+                              referrerPolicy="no-referrer"
+                            />
+                          )}
+                          <div className="source-video-meta">
+                            <strong>{vid.title}</strong>
+                            <span>
+                              {vid.durationLabel ? `${vid.durationLabel} · ` : ""}
+                              {vid.publishedAt
+                                ? new Date(vid.publishedAt).toLocaleDateString("nl-NL")
+                                : "YouTube upload"}
+                            </span>
+                          </div>
+                          <ArrowRight size={14} aria-hidden="true" />
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="card-footer">
+                <span className="quiet-assurance">
+                  <ShieldCheck size={15} aria-hidden="true" />
+                  Geen scraping of verborgen downloads
+                </span>
+                <div className="footer-actions">
+                  <button
+                    type="button"
+                    className="btn-secondary"
+                    onClick={() => setStage("edit")}
+                  >
+                    Direct naar editor
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-primary"
+                    onClick={connectSource}
+                  >
+                    Bron opslaan
+                    <ArrowRight size={15} aria-hidden="true" />
+                  </button>
+                </div>
+              </div>
+            </section>
+          )}
+
+          {stage === "edit" && (
+            <ShortsEditor
+              videoFile={videoFile}
+              videoUrl={videoUrl}
+              sourceTitle={selectedSourceVideo?.title}
+              exportedShort={exportedShort}
+              onSelectVideo={handleSelectVideo}
+              onExportComplete={handleExportComplete}
+              onBack={() => setStage("source")}
+              onNext={() => setStage("publish")}
+              onNotice={setNotice}
+            />
+          )}
+
+          {stage === "publish" && (
+            <section className="card" aria-labelledby="stage-publish-title">
+              <div className="card-header">
+                <div className="card-icon" aria-hidden="true">
+                  <Radio size={18} />
+                </div>
+                <div>
+                  <h2 id="stage-publish-title">YouTube-koppeling & publiceren</h2>
+                  <p>
+                    Verifieer je exacte doelkanaal en upload of plan je Short als
+                    Privé, Verborgen of Openbaar.
+                  </p>
+                </div>
+              </div>
+
+              <YouTubePublishPanel
+                authUser={authUser}
+                accessToken={accessToken}
+                channels={myChannels}
+                confirmedChannelId={confirmedChannelId}
+                isAuthenticating={isAuthenticating}
+                exportedShort={exportedShort}
+                onSignIn={handleYouTubeSignIn}
+                onSignOut={handleYouTubeSignOut}
+                onConfirmChannel={handleConfirmChannel}
+                onNotice={setNotice}
+              />
+
+              <div className="card-footer">
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  onClick={() => setStage("edit")}
+                >
+                  <ArrowLeft size={15} aria-hidden="true" />
+                  Terug naar editor
+                </button>
+                <span className="quiet-assurance">
+                  <ShieldCheck size={15} aria-hidden="true" />
+                  Upload pas na expliciete bevestiging
+                </span>
+              </div>
+            </section>
+          )}
+
+          <div className="status-banner" role="status" aria-live="polite">
+            <Info size={14} aria-hidden="true" />
+            <span>{notice}</span>
+          </div>
+
+          <section className="overview-section" aria-label="Overzicht werkruimte">
+            <div className="overview-row">
+              <div className="overview-label">
+                <Check size={14} className="icon-ready" aria-hidden="true" />
+                <div>
+                  <strong>Gemini Virality &amp; Browser-editor</strong>
+                  <span>Hook-selectie (score ≥ 75), spreker-tracking en 1080p-export</span>
+                </div>
+              </div>
+              <span className="overview-state is-ready">Gereed</span>
+            </div>
+
+            <div className="overview-row">
+              <div className="overview-label">
+                {confirmedChannel ? (
+                  <Check size={14} className="icon-ready" aria-hidden="true" />
+                ) : (
+                  <Radio size={14} className="icon-muted" aria-hidden="true" />
+                )}
+                <div>
+                  <strong>YouTube OAuth-koppeling</strong>
+                  <span>
+                    {confirmedChannel
+                      ? `Bevestigd kanaal: ${confirmedChannel.title}`
+                      : "Koppel in stap 3 om rechtstreeks te uploaden of in te plannen"}
+                  </span>
+                </div>
+              </div>
+              <span
+                className={`overview-state ${confirmedChannel ? "is-ready" : ""}`}
+              >
+                {confirmedChannel ? "Gekoppeld" : "Niet gekoppeld"}
+              </span>
+            </div>
+
+            <div className="overview-row">
+              <div className="overview-label">
+                <ShieldCheck size={14} className="icon-muted" aria-hidden="true" />
+                <div>
+                  <strong>Privacy &amp; opslag</strong>
+                  <span>Videobestand blijft lokaal · OAuth-token alleen in geheugen</span>
+                </div>
+              </div>
+              <span className="overview-state">Lokaal</span>
+            </div>
+          </section>
+        </main>
       </div>
-    </section>
-  </main>;
+    </div>
+  );
 }
