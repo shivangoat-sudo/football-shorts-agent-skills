@@ -258,7 +258,7 @@ export default function App() {
             <span className="nav-copy"><span className="nav-label">AI Video Studio</span><span className="nav-summary">Generatieve video</span></span>
           </button>
           {STEPS.map((step) => {
-            const active = stage === step.id;
+            const active = !aiStudioOpen && stage === step.id;
             const done = isStepDone(step.id);
             return (
               <button
