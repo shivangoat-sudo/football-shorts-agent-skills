@@ -158,7 +158,7 @@ export default function AIVideoStudio() {
             </div>
             {draft.characters.length === 0 ? <div className="ai-empty">Nog geen personages. Voeg een personage met een referentieafbeelding toe.</div> : draft.characters.map((character) => (
               <div className="ai-character" key={character.id}>
-                <div className="ai-character-preview">{character.referenceImages[0] ? <img src={URL.createObjectURL(character.referenceImages[0].file)} alt={character.name} /> : <ImagePlus size={20} />}</div>
+                <div className="ai-character-preview">{character.referenceImages[0] ? <span>{character.referenceImages[0].label}</span> : <ImagePlus size={20} />}</div>
                 <div className="ai-character-fields">
                   <input aria-label="Naam personage" value={character.name} onChange={(event) => setDraft((current) => ({ ...current, characters: current.characters.map((item) => item.id === character.id ? { ...item, name: event.target.value } : item) }))} />
                   <input aria-label="Uiterlijk personage" placeholder="Uiterlijk, kleding en herkenbare details" value={character.appearanceNotes} onChange={(event) => setDraft((current) => ({ ...current, characters: current.characters.map((item) => item.id === character.id ? { ...item, appearanceNotes: event.target.value } : item) }))} />
