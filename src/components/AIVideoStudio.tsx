@@ -97,7 +97,7 @@ export default function AIVideoStudio() {
     if (target < 0 || target >= draft.scenes.length) return;
     setDraft((current) => {
       const scenes = [...current.scenes];
-      [scenes[index], scenes[target]] = [scenes[target], scenes[index]];
+      const first = scenes[index];\n      const second = scenes[target];\n      scenes[index] = { ...second, startSec: first.startSec, endSec: first.endSec };\n      scenes[target] = { ...first, startSec: second.startSec, endSec: second.endSec };
       return { ...current, scenes };
     });
   }
