@@ -253,6 +253,10 @@ export default function App() {
 
         <div className="sidebar-section-label">Werkstroom</div>
         <nav className="sidebar-nav">
+          <button type="button" className={`nav-item ${aiStudioOpen ? "is-active" : ""}`} onClick={() => setAiStudioOpen(true)} aria-current={aiStudioOpen ? "page" : undefined}>
+            <span className="nav-index">AI</span>
+            <span className="nav-copy"><span className="nav-label">AI Video Studio</span><span className="nav-summary">Generatieve video</span></span>
+          </button>
           {STEPS.map((step) => {
             const active = stage === step.id;
             const done = isStepDone(step.id);
@@ -308,7 +312,9 @@ export default function App() {
         </header>
 
         <main className="main-container">
-          {aiStudioOpen ? <AIVideoStudio /> : (\n            <>\n          <div className="page-header">
+          {aiStudioOpen ? <AIVideoStudio /> : (
+            <>
+          <div className="page-header">
             <div className="step-kicker">
               Stap {currentStep.number} van 03 · {currentStep.label}
             </div>
@@ -585,7 +591,9 @@ export default function App() {
               <span className="overview-state">Lokaal</span>
             </div>
           </section>
-            </>\n          )}\n        </main>
+            </>
+          )}
+        </main>
       </div>
     </div>
   );
