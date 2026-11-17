@@ -1,7 +1,9 @@
-import assert from "node:assert/strict";
-import test from "node:test";
 import { validateAIVideoDraft } from "./validation";
 import type { AIVideoDraft } from "./types";
+
+function assert(condition: unknown, message: string): asserts condition {
+  if (!condition) throw new Error(message);
+}
 
 function makeDraft(overrides: Partial<AIVideoDraft> = {}): AIVideoDraft {
   return {
@@ -48,67 +50,68 @@ function makeDraft(overrides: Partial<AIVideoDraft> = {}): AIVideoDraft {
   };
 }
 
-test("accepts a complete draft with a continuous timeline", () => {
-  assert.deepEqual(validateAIVideoDraft(makeDraft()), []);
-});
+const tests: Array<[string, () => void]> = [
+  ["accepts a complete draft with a continuous timeline", () => {
+    assert(validateAIVideoDraft(makeDraft()).length === 0, "valid draft was rejected");
+  }],
+  ["rejects durations outside 10–300 whole seconds", () => {
+    for (const durationSec of [9, 301, 20.5]) {
+      assert(
+        validateAIVideoDraft(makeDraft({ durationSec })).some((issue) => issue.path === "durationSec"),
+        `duration ${durationSec} was accepted`
+      );
+    }
+  }],
+  ["rejects missing prompt, language, character reference and scenes", () => {
+    const draft = makeDraft({
+      prompt: " ",
+      language: " ",
+      characters: [{ ...makeDraft().characters[0], referenceImages: [] }],
+      scenes: [],
+    });
+    const paths = validateAIVideoDraft(draft).map((issue) => issue.path);
+    for (const path of ["prompt", "language", "characters[0].referenceImages", "scenes"]) {
+      assert(paths.includes(path), `missing validation error for ${path}`);
+    }
+  }],
+  ["rejects gaps, overlaps and incomplete scene coverage", () => {
+    const base = makeDraft();
+    const gap = makeDraft({
+      scenes: [{ ...base.scenes[0], endSec: 7 }, { ...base.scenes[1], startSec: 8 }],
+    });
+    assert(validateAIVideoDraft(gap).some((issue) => issue.code === "invalid_timeline"), "gap was accepted");
 
-test("rejects durations outside 10–300 whole seconds", () => {
-  for (const durationSec of [9, 301, 20.5]) {
-    const issues = validateAIVideoDraft(makeDraft({ durationSec }));
-    assert.ok(issues.some((issue) => issue.path === "durationSec"));
-  }
-});
+    const overlap = makeDraft({
+      scenes: [{ ...base.scenes[0], endSec: 9 }, { ...base.scenes[1], startSec: 8 }],
+    });
+    assert(validateAIVideoDraft(overlap).some((issue) => issue.code === "invalid_timeline"), "overlap was accepted");
 
-test("rejects missing prompt, language, character reference and scenes", () => {
-  const draft = makeDraft({
-    prompt: " ",
-    language: " ",
-    characters: [{ ...makeDraft().characters[0], referenceImages: [] }],
-    scenes: [],
-  });
-  const paths = validateAIVideoDraft(draft).map((issue) => issue.path);
-  assert.ok(paths.includes("prompt"));
-  assert.ok(paths.includes("language"));
-  assert.ok(paths.includes("characters[0].referenceImages"));
-  assert.ok(paths.includes("scenes"));
-});
+    const incomplete = makeDraft({
+      scenes: [{ ...base.scenes[0], endSec: 8 }],
+    });
+    assert(validateAIVideoDraft(incomplete).some((issue) => issue.code === "invalid_timeline"), "incomplete timeline was accepted");
+  }],
+  ["rejects scene references to unknown characters", () => {
+    const draft = makeDraft({
+      scenes: [{ ...makeDraft().scenes[0], endSec: 20, characterIds: ["missing"] }],
+    });
+    assert(validateAIVideoDraft(draft).some((issue) => issue.code === "invalid_reference"), "unknown character was accepted");
+  }],
+  ["rejects duplicate scene and character identifiers", () => {
+    const draft = makeDraft();
+    const duplicate = makeDraft({
+      characters: [draft.characters[0], { ...draft.characters[0], name: "Second" }],
+      scenes: [
+        draft.scenes[0],
+        { ...draft.scenes[1], id: draft.scenes[0].id, startSec: 8 },
+      ],
+    });
+    assert(validateAIVideoDraft(duplicate).some((issue) => issue.code === "duplicate_id"), "duplicate ID was accepted");
+  }],
+];
 
-test("rejects gaps, overlaps and incomplete scene coverage", () => {
-  const base = makeDraft();
-  const gap = makeDraft({
-    scenes: [{ ...base.scenes[0], endSec: 7 }, { ...base.scenes[1], startSec: 8 }],
-  });
-  assert.ok(validateAIVideoDraft(gap).some((issue) => issue.code === "invalid_timeline"));
-
-  const overlap = makeDraft({
-    scenes: [{ ...base.scenes[0], endSec: 9 }, { ...base.scenes[1], startSec: 8 }],
-  });
-  assert.ok(validateAIVideoDraft(overlap).some((issue) => issue.code === "invalid_timeline"));
-
-  const incomplete = makeDraft({
-    scenes: [{ ...base.scenes[0], endSec: 8 }],
-  });
-  assert.ok(validateAIVideoDraft(incomplete).some((issue) => issue.code === "invalid_timeline"));
-});
-
-test("rejects scene references to unknown characters", () => {
-  const draft = makeDraft({
-    scenes: [{ ...makeDraft().scenes[0], endSec: 20, characterIds: ["missing"] }],
-  });
-  assert.ok(
-    validateAIVideoDraft(draft).some((issue) => issue.code === "invalid_reference")
-  );
-});
-
-test("rejects duplicate scene and character identifiers", () => {
-  const draft = makeDraft();
-  const duplicate = makeDraft({
-    characters: [draft.characters[0], { ...draft.characters[0], name: "Second" }],
-    scenes: [
-      draft.scenes[0],
-      { ...draft.scenes[1], id: draft.scenes[0].id, startSec: 8 },
-    ],
-  });
-  const codes = validateAIVideoDraft(duplicate).map((issue) => issue.code);
-  assert.ok(codes.includes("duplicate_id"));
-});
+for (const [name, run] of tests) {
+  run();
+  console.log(`PASS ${name}`);
+}
+console.log(`Passed ${tests.length} AI Video Studio validation tests.`);
