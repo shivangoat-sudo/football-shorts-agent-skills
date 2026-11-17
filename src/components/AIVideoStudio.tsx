@@ -39,7 +39,6 @@ function formatTime(seconds: number) {
 export default function AIVideoStudio() {
   const [draft, setDraft] = useState<AIVideoDraft>(initialDraft);
   const [selectedSceneId, setSelectedSceneId] = useState(initialDraft.scenes[0].id);
-  const [workerConfigured] = useState(false);
   const issues = useMemo(() => validateAIVideoDraft(draft), [draft]);
   const selectedScene = draft.scenes.find((scene) => scene.id === selectedSceneId) ?? draft.scenes[0];
 
