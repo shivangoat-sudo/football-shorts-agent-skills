@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState } from "react";
-import type { User } from "firebase/auth";
 import {
   Activity,
   ArrowLeft,
@@ -10,21 +9,31 @@ import {
   Radio,
   Search,
   ShieldCheck,
+  Sparkles,
   Youtube,
 } from "lucide-react";
+import FacelessEditor from "./components/FacelessEditor";
 import ShortsEditor from "./components/ShortsEditor";
 import YouTubePublishPanel from "./components/YouTubePublishPanel";
+import YouTubeStudioBar from "./components/YouTubeStudioBar";
 import type { ExportedShortResult } from "./lib/shortExporter";
 import {
   fetchAuthenticatedChannels,
+  fetchChannelStudioSnapshot,
   fetchChannelWithRecentVideos,
   type YouTubeChannelInfo,
+  type YouTubeStudioSnapshot,
   type YouTubeVideoItem,
 } from "./lib/youtubeApi";
 import {
   initYouTubeAuth,
+  isEmbeddedIframe,
   signInWithYouTube,
+  signInWithYouTubeRedirect,
   signOutYouTube,
+  YouTubeAuthError,
+  type YouTubeAuthFailureInfo,
+  type YouTubeAuthUser,
 } from "./lib/youtubeAuth";
 
 type Stage = "source" | "edit" | "publish";
@@ -37,9 +46,9 @@ interface StepConfig {
 }
 
 const STEPS: StepConfig[] = [
-  { id: "source", label: "Bron", number: "01", summary: "Podcastbron" },
-  { id: "edit", label: "Shorts-editor", number: "02", summary: "Hooks & 9:16" },
-  { id: "publish", label: "Publiceren", number: "03", summary: "YouTube-koppeling" },
+  { id: "edit", label: "Series Studio", number: "01", summary: "Make Series & 2D" },
+  { id: "source", label: "Podcast Source", number: "02", summary: "Channel & Clips" },
+  { id: "publish", label: "Publish", number: "03", summary: "YouTube Upload" },
 ];
 
 export default function App() {
@@ -52,9 +61,10 @@ export default function App() {
     useState<YouTubeVideoItem | null>(null);
   const [resolvingSource, setResolvingSource] = useState(false);
 
-  const [stage, setStage] = useState<Stage>("source");
+  const [stage, setStage] = useState<Stage>("edit");
+  const [editorMode, setEditorMode] = useState<"faceless" | "podcast">("faceless");
   const [notice, setNotice] = useState(
-    "Werkruimte gereed. Koppel een kanaalbron of open direct de Shorts-editor."
+    "Series Studio ready. Trigger Make Series to build a 5-min Sunday video + 6 point-mapped Mon–Sat Shorts."
   );
 
   const [videoFile, setVideoFile] = useState<File | null>(null);
@@ -63,29 +73,87 @@ export default function App() {
     null
   );
 
-  // YouTube OAuth state (access token cached in memory only)
-  const [authUser, setAuthUser] = useState<User | null>(null);
+  // YouTube OAuth & Studio stats state (access token cached in memory only)
+  const [authUser, setAuthUser] = useState<YouTubeAuthUser | null>(null);
   const [accessToken, setAccessToken] = useState<string | null>(null);
   const [myChannels, setMyChannels] = useState<YouTubeChannelInfo[]>([]);
+  const [activeStudioChannelId, setActiveStudioChannelId] = useState<string | null>(
+    null
+  );
   const [confirmedChannelId, setConfirmedChannelId] = useState<string | null>(
     null
   );
+  const [studioSnapshot, setStudioSnapshot] =
+    useState<YouTubeStudioSnapshot | null>(null);
+  const [loadingSnapshot, setLoadingSnapshot] = useState(false);
   const [isAuthenticating, setIsAuthenticating] = useState(false);
+  const [authError, setAuthError] = useState<YouTubeAuthFailureInfo | null>(
+    null
+  );
+  const [viralLaunchTrigger, setViralLaunchTrigger] = useState(0);
+
+  async function hydrateYouTubeSession(user: YouTubeAuthUser, token: string) {
+    setAuthError(null);
+    setAuthUser(user);
+    setAccessToken(token);
+    try {
+      const channels = await fetchAuthenticatedChannels(token);
+      setMyChannels(channels);
+      setConfirmedChannelId(null);
+      if (channels.length > 0) {
+        const primary = channels[0];
+        setActiveStudioChannelId(primary.id);
+        setNotice(
+          `YouTube Studio connected: ${primary.title}. Loading recent metrics...`
+        );
+        await loadStudioSnapshotForChannel(token, primary);
+        setNotice(
+          `YouTube Studio active (${primary.title}). Confirm your channel or run the Performance Loop.`
+        );
+      } else {
+        setActiveStudioChannelId(null);
+        setStudioSnapshot(null);
+        setNotice("Signed in to Google, but no YouTube channel was found.");
+      }
+    } catch (err) {
+      const msg =
+        err instanceof Error
+          ? err.message
+          : "Could not load your connected YouTube channel.";
+      setAuthError({
+        message: msg,
+        suggestFullTab: false,
+        suggestRedirect: false,
+      });
+      setNotice(msg);
+    }
+  }
 
   useEffect(() => {
     const unsubscribe = initYouTubeAuth(
       (user, token) => {
-        setAuthUser(user);
-        setAccessToken(token);
+        void hydrateYouTubeSession(user, token);
       },
       (user) => {
         setAuthUser(user);
         setAccessToken(null);
         setMyChannels([]);
+        setActiveStudioChannelId(null);
         setConfirmedChannelId(null);
+        setStudioSnapshot(null);
+      },
+      (err) => {
+        setAuthError({
+          message: err.message,
+          code: err.code,
+          suggestFullTab: err.suggestFullTab,
+          suggestRedirect: err.suggestRedirect,
+        });
+        setNotice(err.message);
       }
     );
     return unsubscribe;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -104,13 +172,14 @@ export default function App() {
     const trimmed = channel.trim();
     if (!trimmed) return false;
     return (
-      /youtube\.com\/(channel\/|@|c\/)|youtu\.be\//i.test(trimmed) ||
-      /^@[a-zA-Z0-9._-]{3,}$/.test(trimmed)
+      /youtube\.com\/(channel\/|@|c\/|user\/)|youtu\.be\//i.test(trimmed) ||
+      /^@[a-zA-Z0-9._-]{3,}$/.test(trimmed) ||
+      /^UC[a-zA-Z0-9_-]{20,}$/.test(trimmed)
     );
   }, [channel]);
 
   const currentStepIndex = STEPS.findIndex((s) => s.id === stage);
-  const currentStep = STEPS[currentStepIndex];
+  const currentStep = STEPS[currentStepIndex] || STEPS[0];
 
   const sourceCompleted = channel.trim().length > 0;
   const editCompleted = exportedShort !== null;
@@ -121,28 +190,78 @@ export default function App() {
     return false;
   }
 
-  async function handleYouTubeSignIn() {
-    setIsAuthenticating(true);
+  async function loadStudioSnapshotForChannel(
+    token: string,
+    targetChannel: YouTubeChannelInfo
+  ) {
+    setLoadingSnapshot(true);
     try {
-      const { user, accessToken: token } = await signInWithYouTube();
-      setAuthUser(user);
-      setAccessToken(token);
-      const channels = await fetchAuthenticatedChannels(token);
-      setMyChannels(channels);
-      setConfirmedChannelId(null);
-      if (channels.length > 0) {
-        setNotice(
-          `Google-account gekoppeld (${channels.length} kanaal/kanalen gevonden). Bevestig je doelkanaal.`
-        );
-      } else {
-        setNotice("Ingelogd bij Google, maar geen YouTube-kanaal gevonden.");
-      }
+      const snapshot = await fetchChannelStudioSnapshot(token, targetChannel, 20);
+      setStudioSnapshot(snapshot);
     } catch (err) {
       const msg =
-        err instanceof Error ? err.message : "Koppelen met YouTube is mislukt.";
+        err instanceof Error
+          ? err.message
+          : "Could not load recent YouTube metrics.";
       setNotice(msg);
     } finally {
+      setLoadingSnapshot(false);
+    }
+  }
+
+  async function handleYouTubeSignIn() {
+    setIsAuthenticating(true);
+    setAuthError(null);
+    try {
+      const { user, accessToken: token } = await signInWithYouTube();
+      await hydrateYouTubeSession(user, token);
+    } catch (err) {
+      if (err instanceof YouTubeAuthError) {
+        setAuthError({
+          message: err.message,
+          code: err.code,
+          suggestFullTab: err.suggestFullTab,
+          suggestRedirect: err.suggestRedirect,
+        });
+        setNotice(err.message);
+      } else {
+        const msg =
+          err instanceof Error
+            ? err.message
+            : "Connecting to YouTube failed.";
+        setAuthError({
+          message: msg,
+          suggestFullTab: isEmbeddedIframe(),
+          suggestRedirect: !isEmbeddedIframe(),
+        });
+        setNotice(msg);
+      }
+    } finally {
       setIsAuthenticating(false);
+    }
+  }
+
+  async function handleYouTubeRedirectSignIn() {
+    setIsAuthenticating(true);
+    setAuthError(null);
+    try {
+      await signInWithYouTubeRedirect();
+    } catch (err) {
+      setIsAuthenticating(false);
+      if (err instanceof YouTubeAuthError) {
+        setAuthError({
+          message: err.message,
+          code: err.code,
+          suggestFullTab: err.suggestFullTab,
+          suggestRedirect: err.suggestRedirect,
+        });
+        setNotice(err.message);
+      } else {
+        const msg =
+          err instanceof Error ? err.message : "Redirect sign-in failed.";
+        setAuthError({ message: msg });
+        setNotice(msg);
+      }
     }
   }
 
@@ -151,28 +270,55 @@ export default function App() {
     setAuthUser(null);
     setAccessToken(null);
     setMyChannels([]);
+    setActiveStudioChannelId(null);
     setConfirmedChannelId(null);
-    setNotice("YouTube-koppeling verbroken.");
+    setStudioSnapshot(null);
+    setAuthError(null);
+    setNotice("Disconnected from YouTube.");
+  }
+
+  function handleSelectStudioChannel(channelId: string) {
+    setActiveStudioChannelId(channelId);
+    const ch = myChannels.find((c) => c.id === channelId);
+    if (ch && accessToken) {
+      void loadStudioSnapshotForChannel(accessToken, ch);
+    }
+  }
+
+  function handleRefreshStudioStats() {
+    const ch =
+      myChannels.find((c) => c.id === (activeStudioChannelId || confirmedChannelId)) ||
+      myChannels[0];
+    if (ch && accessToken) {
+      void loadStudioSnapshotForChannel(accessToken, ch);
+    }
   }
 
   function handleConfirmChannel(channelId: string) {
     setConfirmedChannelId(channelId);
+    setActiveStudioChannelId(channelId);
     const ch = myChannels.find((c) => c.id === channelId);
     setNotice(
       ch
-        ? `Doelkanaal bevestigd: ${ch.title} (${ch.id}).`
-        : "Doelkanaal bevestigd."
+        ? `Destination channel verified: ${ch.title} (${ch.id}).`
+        : "Destination channel verified."
     );
+  }
+
+  function handleStartViralVideo() {
+    setEditorMode("faceless");
+    setStage("edit");
+    setViralLaunchTrigger((n) => n + 1);
   }
 
   async function handleResolveSource() {
     if (!channel.trim()) {
-      setNotice("Vul eerst een YouTube-kanaal-URL of @handle in.");
+      setNotice("Enter a YouTube channel URL or @handle first.");
       return;
     }
     if (!accessToken) {
       setNotice(
-        "Koppel eerst je YouTube-account (bij Publiceren) om video's op dit kanaal te bekijken."
+        "Connect your YouTube account first (under Publish) to browse uploads."
       );
       return;
     }
@@ -185,15 +331,15 @@ export default function App() {
       if (res?.channel) {
         setNotice(
           res.videos.length > 0
-            ? `Kanaal gevonden: ${res.channel.title} (${res.videos.length} lange video's > 3 min geladen).`
-            : `Kanaal gevonden: ${res.channel.title}, maar geen lange video's (> 3 min) in de recente uploads gevonden.`
+            ? `Channel resolved: ${res.channel.title} (${res.videos.length} videos > 3 min loaded).`
+            : `Channel resolved: ${res.channel.title}, no long-form uploads (> 3 min) found recently.`
         );
       } else {
-        setNotice("Geen passend YouTube-kanaal gevonden voor deze invoer.");
+        setNotice("No matching YouTube channel found.");
       }
     } catch (err) {
       const msg =
-        err instanceof Error ? err.message : "Kanaal controleren mislukt.";
+        err instanceof Error ? err.message : "Channel resolution failed.";
       setNotice(msg);
     } finally {
       setResolvingSource(false);
@@ -202,11 +348,11 @@ export default function App() {
 
   function connectSource() {
     if (!channel.trim()) {
-      setNotice("Vul eerst een YouTube-kanaal-URL of @handle in.");
+      setNotice("Enter a YouTube channel URL or @handle first.");
       return;
     }
     setNotice(
-      "Bron lokaal opgeslagen voor deze sessie. Kies nu een videobestand in de editor."
+      "Source reference saved for this session. Load the licensed local file in the editor."
     );
     setStage("edit");
   }
@@ -222,8 +368,20 @@ export default function App() {
     setExportedShort(result);
   }
 
+  function handleFacelessApproved(result: ExportedShortResult) {
+    setExportedShort(result);
+    setNotice(
+      "Video and English metadata approved. Confirm destination channel to upload."
+    );
+    setStage("publish");
+  }
+
   const confirmedChannel =
     myChannels.find((c) => c.id === confirmedChannelId) || null;
+  const activeStudioChannel =
+    myChannels.find((c) => c.id === (activeStudioChannelId || confirmedChannelId)) ||
+    myChannels[0] ||
+    null;
 
   return (
     <div className="app-shell">
@@ -238,7 +396,7 @@ export default function App() {
           </filter>
         </defs>
       </svg>
-      <aside className="sidebar" aria-label="Werkstroomnavigatie">
+      <aside className="sidebar" aria-label="Workflow navigation">
         <div className="brand">
           <div className="brand-mark" aria-hidden="true">
             <Activity size={18} strokeWidth={2} />
@@ -249,7 +407,7 @@ export default function App() {
           </div>
         </div>
 
-        <div className="sidebar-section-label">Werkstroom</div>
+        <div className="sidebar-section-label">Production Pipeline</div>
         <nav className="sidebar-nav">
           {STEPS.map((step) => {
             const active = stage === step.id;
@@ -277,12 +435,12 @@ export default function App() {
         <div className="sidebar-footer">
           <div className="sidebar-policy">
             <LockKeyhole size={14} aria-hidden="true" />
-            <span>Lokaal renderen · Gemini AI</span>
+            <span>Local 2D Render · Gemini AI</span>
           </div>
           <div className="sidebar-meta">
             {confirmedChannel
-              ? `Kanaal: ${confirmedChannel.title}`
-              : "Versie 0.1.0 · Podcast Studio"}
+              ? `Channel: ${confirmedChannel.title}`
+              : "English Series Producer"}
           </div>
         </div>
       </aside>
@@ -290,30 +448,50 @@ export default function App() {
       <div className="workspace">
         <header className="topbar">
           <div className="breadcrumb">
-            <span>Projecten</span>
+            <span>Touchline Studio</span>
             <span className="sep" aria-hidden="true">
               /
             </span>
-            <span className="crumb-current">Podcast Shorts</span>
+            <span className="crumb-current">{currentStep.label}</span>
           </div>
           <div className="topbar-meta">
             <span>
               {confirmedChannel
-                ? `Gekoppeld: ${confirmedChannel.title}`
-                : "Geen YouTube-account gekoppeld"}
+                ? `Verified: ${confirmedChannel.title}`
+                : "Pre-publish confirmation enforced"}
             </span>
           </div>
         </header>
 
         <main className="main-container">
+          <YouTubeStudioBar
+            authUser={authUser}
+            accessToken={accessToken}
+            authError={authError}
+            channels={myChannels}
+            activeChannel={activeStudioChannel}
+            confirmedChannelId={confirmedChannelId}
+            studioSnapshot={studioSnapshot}
+            loadingSnapshot={loadingSnapshot}
+            isAuthenticating={isAuthenticating}
+            onSignIn={handleYouTubeSignIn}
+            onRedirectSignIn={handleYouTubeRedirectSignIn}
+            onSignOut={handleYouTubeSignOut}
+            onSelectChannel={handleSelectStudioChannel}
+            onConfirmChannel={handleConfirmChannel}
+            onRefreshStats={handleRefreshStudioStats}
+            onStartViralVideo={handleStartViralVideo}
+          />
+
           <div className="page-header">
             <div className="step-kicker">
-              Stap {currentStep.number} van 03 · {currentStep.label}
+              Step {currentStep.number} of 03 · {currentStep.label}
             </div>
-            <h1>Elke sterke hook direct scherp</h1>
+            <h1>Autonomous English Series &amp; 2D Animation Director</h1>
             <p className="page-subtitle">
-              Extraheer high-retention podcast-fragmenten (15–58s, score ≥ 75)
-              met bewezen hooks, getimede ondertitels en 9:16 spreker-tracking.
+              Generate cohesive 5-minute Sunday episodes and 6 point-mapped
+              Mon–Sat Shorts in calm white &amp; warm gold line-art on pitch black,
+              then refine every season through the Performance Feedback Loop.
             </p>
           </div>
 
@@ -324,16 +502,16 @@ export default function App() {
                   <Youtube size={18} />
                 </div>
                 <div>
-                  <h2 id="stage-source-title">Koppel je podcastkanaal</h2>
+                  <h2 id="stage-source-title">Connect Podcast Channel Source</h2>
                   <p>
-                    Noteer het YouTube-kanaal dat je volgt, of open direct de
-                    Podcast Shorts-editor om een aflevering te analyseren.
+                    Resolve an official YouTube channel identity or switch straight
+                    to the Series Studio to build 2D animations.
                   </p>
                 </div>
               </div>
 
               <div className="field-group">
-                <label htmlFor="channel-input">YouTube-kanaal-URL of @handle</label>
+                <label htmlFor="channel-input">YouTube Channel URL or @handle</label>
                 <div className="input-row-with-btn">
                   <div className="input-box input-flex">
                     <Youtube size={16} className="input-icon" aria-hidden="true" />
@@ -347,7 +525,7 @@ export default function App() {
                         setSourceVideos([]);
                         setSelectedSourceVideo(null);
                       }}
-                      placeholder="https://youtube.com/@jouwkanaal of @jouwkanaal"
+                      placeholder="https://youtube.com/@yourchannel or @yourchannel"
                     />
                   </div>
                   {accessToken ? (
@@ -358,7 +536,7 @@ export default function App() {
                       disabled={resolvingSource}
                     >
                       <Search size={14} aria-hidden="true" />
-                      {resolvingSource ? "Ophalen..." : "Video's bekijken"}
+                      {resolvingSource ? "Loading..." : "Inspect Videos"}
                     </button>
                   ) : (
                     <button
@@ -366,7 +544,7 @@ export default function App() {
                       className="btn-secondary"
                       onClick={() => setStage("publish")}
                     >
-                      YouTube koppelen
+                      Connect YouTube
                     </button>
                   )}
                 </div>
@@ -374,10 +552,10 @@ export default function App() {
                   {channel.trim()
                     ? validChannel
                       ? accessToken
-                        ? "Klik op 'Video's bekijken' om de nieuwste uploads van dit kanaal te zien."
-                        : "Koppel eerst je YouTube-account om de uploads van dit kanaal live te bekijken."
-                      : "Gebruik een volledige youtube.com-kanaal-URL of een @handle."
-                    : "Ondersteunt kanaal-URL's, kanaal-ID's of @handles."}
+                        ? "Click 'Inspect Videos' to view recent long-form uploads."
+                        : "Connect your YouTube account first to resolve channel uploads."
+                      : "Use a valid youtube.com channel URL, ID, or @handle."
+                    : "Supports channel URLs, channel IDs, and @handles via official YouTube API."}
                 </p>
 
                 {resolvedSource && (
@@ -404,8 +582,8 @@ export default function App() {
                 {sourceVideos.length > 0 && (
                   <div className="source-videos-block">
                     <div className="source-videos-head">
-                      <span>Recente lange video&apos;s (&gt; 3 min)</span>
-                      <span>Kies het originele videobestand hierna in de editor</span>
+                      <span>Recent long-form videos (&gt; 3 min)</span>
+                      <span>Load your authorized local file in the editor next</span>
                     </div>
                     <div className="source-videos-list">
                       {sourceVideos.map((vid) => (
@@ -417,8 +595,9 @@ export default function App() {
                           }`}
                           onClick={() => {
                             setSelectedSourceVideo(vid);
+                            setEditorMode("podcast");
                             setNotice(
-                              `Video geselecteerd: '${vid.title}'. Kies nu het videobestand in de Shorts-editor.`
+                              `Selected video: '${vid.title}'. Load the authorized media file in Podcast Clips.`
                             );
                             setStage("edit");
                           }}
@@ -435,7 +614,7 @@ export default function App() {
                             <span>
                               {vid.durationLabel ? `${vid.durationLabel} · ` : ""}
                               {vid.publishedAt
-                                ? new Date(vid.publishedAt).toLocaleDateString("nl-NL")
+                                ? new Date(vid.publishedAt).toLocaleDateString("en-US")
                                 : "YouTube upload"}
                             </span>
                           </div>
@@ -450,22 +629,26 @@ export default function App() {
               <div className="card-footer">
                 <span className="quiet-assurance">
                   <ShieldCheck size={15} aria-hidden="true" />
-                  Geen scraping of verborgen downloads
+                  Official YouTube APIs only · No scraping
                 </span>
                 <div className="footer-actions">
                   <button
                     type="button"
                     className="btn-secondary"
-                    onClick={() => setStage("edit")}
+                    onClick={() => {
+                      setEditorMode("faceless");
+                      setStage("edit");
+                    }}
                   >
-                    Direct naar editor
+                    <Sparkles size={15} aria-hidden="true" />
+                    Open Series Studio
                   </button>
                   <button
                     type="button"
                     className="btn-primary"
                     onClick={connectSource}
                   >
-                    Bron opslaan
+                    Save Source
                     <ArrowRight size={15} aria-hidden="true" />
                   </button>
                 </div>
@@ -473,19 +656,104 @@ export default function App() {
             </section>
           )}
 
-          {stage === "edit" && (
-            <ShortsEditor
-              videoFile={videoFile}
-              videoUrl={videoUrl}
-              sourceTitle={selectedSourceVideo?.title}
-              exportedShort={exportedShort}
-              onSelectVideo={handleSelectVideo}
-              onExportComplete={handleExportComplete}
-              onBack={() => setStage("source")}
-              onNext={() => setStage("publish")}
-              onNotice={setNotice}
-            />
-          )}
+          <div hidden={stage !== "edit"}>
+            <div className="editor-mode-shell">
+              <div className="mode-switcher-bar">
+                <div className="segmented-group" role="tablist" aria-label="Editor mode">
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={editorMode === "faceless"}
+                    className={`segmented-btn ${
+                      editorMode === "faceless" ? "is-active" : ""
+                    }`}
+                    onClick={() => setEditorMode("faceless")}
+                  >
+                    Series &amp; 2D Animation Studio
+                  </button>
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={editorMode === "podcast"}
+                    className={`segmented-btn ${
+                      editorMode === "podcast" ? "is-active" : ""
+                    }`}
+                    onClick={() => setEditorMode("podcast")}
+                  >
+                    Podcast Virality Clips
+                  </button>
+                </div>
+                <span className="control-hint">
+                  {editorMode === "faceless"
+                    ? "English Scripts → Calm 2D White & Warm Gold Vector Animation (9:16 & 16:9)"
+                    : "Authorized podcast file → viral hooks (score ≥ 75) & 9:16 framing"}
+                </span>
+              </div>
+
+              <div hidden={editorMode !== "faceless"}>
+                <section className="card" aria-labelledby="faceless-stage-title">
+                  <div className="card-header">
+                    <div className="card-icon" aria-hidden="true">
+                      <Sparkles size={18} />
+                    </div>
+                    <div>
+                      <h2 id="faceless-stage-title">Minimalist 2D Series Studio</h2>
+                      <p>
+                        Produce calm, composed 9:16 Shorts and 16:9 Sunday flagship
+                        episodes on pure black canvas with crisp white line-art,
+                        warm gold gaze accents, speech-synced captions, and JSON
+                        storyboards.
+                      </p>
+                    </div>
+                  </div>
+
+                  <FacelessEditor
+                    studioSnapshot={studioSnapshot}
+                    isYouTubeConnected={Boolean(accessToken && activeStudioChannel)}
+                    onRequestYouTubeLogin={handleYouTubeSignIn}
+                    viralLaunchTrigger={viralLaunchTrigger}
+                    isActive={stage === "edit" && editorMode === "faceless"}
+                    onApproveAndPublish={handleFacelessApproved}
+                    onNotice={setNotice}
+                  />
+
+                  <div className="card-footer">
+                    <button
+                      type="button"
+                      className="btn-secondary"
+                      onClick={() => setStage("source")}
+                    >
+                      <ArrowLeft size={15} aria-hidden="true" />
+                      Source
+                    </button>
+                    <button
+                      type="button"
+                      className="btn-secondary"
+                      onClick={() => setStage("publish")}
+                    >
+                      Go to Publish Agent
+                      <ArrowRight size={15} aria-hidden="true" />
+                    </button>
+                  </div>
+                </section>
+              </div>
+
+              <div hidden={editorMode !== "podcast"}>
+                <ShortsEditor
+                  videoFile={videoFile}
+                  videoUrl={videoUrl}
+                  sourceTitle={selectedSourceVideo?.title}
+                  exportedShort={exportedShort}
+                  isActive={stage === "edit" && editorMode === "podcast"}
+                  onSelectVideo={handleSelectVideo}
+                  onExportComplete={handleExportComplete}
+                  onBack={() => setStage("source")}
+                  onNext={() => setStage("publish")}
+                  onNotice={setNotice}
+                />
+              </div>
+            </div>
+          </div>
 
           {stage === "publish" && (
             <section className="card" aria-labelledby="stage-publish-title">
@@ -494,10 +762,10 @@ export default function App() {
                   <Radio size={18} />
                 </div>
                 <div>
-                  <h2 id="stage-publish-title">YouTube-koppeling & publiceren</h2>
+                  <h2 id="stage-publish-title">YouTube Verification &amp; Release</h2>
                   <p>
-                    Verifieer je exacte doelkanaal en upload of plan je Short als
-                    Privé, Verborgen of Openbaar.
+                    Verify the destination channel and upload or schedule your
+                    approved video as Private, Unlisted, Scheduled, or Public.
                   </p>
                 </div>
               </div>
@@ -505,11 +773,13 @@ export default function App() {
               <YouTubePublishPanel
                 authUser={authUser}
                 accessToken={accessToken}
+                authError={authError}
                 channels={myChannels}
                 confirmedChannelId={confirmedChannelId}
                 isAuthenticating={isAuthenticating}
                 exportedShort={exportedShort}
                 onSignIn={handleYouTubeSignIn}
+                onRedirectSignIn={handleYouTubeRedirectSignIn}
                 onSignOut={handleYouTubeSignOut}
                 onConfirmChannel={handleConfirmChannel}
                 onNotice={setNotice}
@@ -522,11 +792,11 @@ export default function App() {
                   onClick={() => setStage("edit")}
                 >
                   <ArrowLeft size={15} aria-hidden="true" />
-                  Terug naar editor
+                  Back to Studio
                 </button>
                 <span className="quiet-assurance">
                   <ShieldCheck size={15} aria-hidden="true" />
-                  Upload pas na expliciete bevestiging
+                  Human confirmation required before every upload
                 </span>
               </div>
             </section>
@@ -537,16 +807,19 @@ export default function App() {
             <span>{notice}</span>
           </div>
 
-          <section className="overview-section" aria-label="Overzicht werkruimte">
+          <section className="overview-section" aria-label="Workspace overview">
             <div className="overview-row">
               <div className="overview-label">
                 <Check size={14} className="icon-ready" aria-hidden="true" />
                 <div>
-                  <strong>Gemini Virality &amp; Browser-editor</strong>
-                  <span>Hook-selectie (score ≥ 75), spreker-tracking en 1080p-export</span>
+                  <strong>2D Vector Studio &amp; Performance Loop</strong>
+                  <span>
+                    5-min Sunday episode + 6 Mon–Sat Shorts · Bold 9:16 &amp; 16:9
+                    line-art export
+                  </span>
                 </div>
               </div>
-              <span className="overview-state is-ready">Gereed</span>
+              <span className="overview-state is-ready">Ready</span>
             </div>
 
             <div className="overview-row">
@@ -557,18 +830,18 @@ export default function App() {
                   <Radio size={14} className="icon-muted" aria-hidden="true" />
                 )}
                 <div>
-                  <strong>YouTube OAuth-koppeling</strong>
+                  <strong>YouTube OAuth Connection</strong>
                   <span>
                     {confirmedChannel
-                      ? `Bevestigd kanaal: ${confirmedChannel.title}`
-                      : "Koppel in stap 3 om rechtstreeks te uploaden of in te plannen"}
+                      ? `Verified channel: ${confirmedChannel.title}`
+                      : "Connect in Publish step to upload or schedule directly"}
                   </span>
                 </div>
               </div>
               <span
                 className={`overview-state ${confirmedChannel ? "is-ready" : ""}`}
               >
-                {confirmedChannel ? "Gekoppeld" : "Niet gekoppeld"}
+                {confirmedChannel ? "Verified" : "Not linked"}
               </span>
             </div>
 
@@ -576,11 +849,13 @@ export default function App() {
               <div className="overview-label">
                 <ShieldCheck size={14} className="icon-muted" aria-hidden="true" />
                 <div>
-                  <strong>Privacy &amp; opslag</strong>
-                  <span>Videobestand blijft lokaal · OAuth-token alleen in geheugen</span>
+                  <strong>Privacy &amp; Release Guard</strong>
+                  <span>
+                    Local browser canvas export · OAuth tokens stored in memory only
+                  </span>
                 </div>
               </div>
-              <span className="overview-state">Lokaal</span>
+              <span className="overview-state">Protected</span>
             </div>
           </section>
         </main>

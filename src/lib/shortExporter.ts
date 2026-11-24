@@ -31,6 +31,10 @@ export interface ExportedShortResult {
   mimeType: string;
   durationSec: number;
   suggestedTitle?: string;
+  suggestedDescription?: string;
+  thumbnailHook?: string;
+  scheduledPublishAt?: string;
+  seriesLabel?: string;
 }
 
 function getSupportedMimeType(): string {
@@ -155,6 +159,7 @@ export async function exportVerticalShort(
   if (AudioCtx) {
     try {
       audioCtx = new AudioCtx();
+      await audioCtx.resume().catch(() => {});
       const dest = audioCtx.createMediaStreamDestination();
 
       const videoSource = audioCtx.createMediaElementSource(video);

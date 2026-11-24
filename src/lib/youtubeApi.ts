@@ -1,8 +1,54 @@
+export interface YouTubeChannelStatistics {
+  subscriberCount: number;
+  viewCount: number;
+  videoCount: number;
+  hiddenSubscriberCount: boolean;
+}
+
 export interface YouTubeChannelInfo {
   id: string;
   title: string;
   customUrl?: string;
   thumbnailUrl?: string;
+  uploadsPlaylistId?: string;
+  statistics?: YouTubeChannelStatistics;
+}
+
+export interface YouTubeChannelVideoStat {
+  id: string;
+  title: string;
+  publishedAt: string;
+  durationSec: number;
+  durationLabel: string;
+  format: "Short" | "Video";
+  thumbnailUrl?: string;
+  watchUrl: string;
+  viewCount: number;
+  likeCount: number;
+  commentCount: number;
+  engagementRate: number;
+  viewsPerDay: number;
+}
+
+export interface YouTubeStudioSummary {
+  sampleSize: number;
+  avgViews: number;
+  avgLikes: number;
+  avgEngagementRate: number;
+  avgViewsPerDay: number;
+  shortsCount: number;
+  shortsAvgViews: number;
+  longVideosCount: number;
+  longVideosAvgViews: number;
+  topVideo: YouTubeChannelVideoStat | null;
+  lowestVideo: YouTubeChannelVideoStat | null;
+  fetchedAtIso: string;
+}
+
+export interface YouTubeStudioSnapshot {
+  channel: YouTubeChannelInfo;
+  recentVideos: YouTubeChannelVideoStat[];
+  summary: YouTubeStudioSummary;
 }
 
 export type YouTubePrivacyStatus = "private" | "unlisted" | "public";
@@ -38,6 +84,17 @@ interface RawChannelItem {
       medium?: { url?: string };
     };
   };
+  statistics?: {
+    subscriberCount?: string;
+    viewCount?: string;
+    videoCount?: string;
+    hiddenSubscriberCount?: boolean;
+  };
+  contentDetails?: {
+    relatedPlaylists?: {
+      uploads?: string;
+    };
+  };
 }
 
 function mapChannelItem(item: RawChannelItem): YouTubeChannelInfo {
@@ -48,6 +105,15 @@ function mapChannelItem(item: RawChannelItem): YouTubeChannelInfo {
     thumbnailUrl:
       item.snippet?.thumbnails?.medium?.url ||
       item.snippet?.thumbnails?.default?.url,
+    uploadsPlaylistId: item.contentDetails?.relatedPlaylists?.uploads,
+    statistics: item.statistics
+      ? {
+          subscriberCount: Number(item.statistics.subscriberCount || 0),
+          viewCount: Number(item.statistics.viewCount || 0),
+          videoCount: Number(item.statistics.videoCount || 0),
+          hiddenSubscriberCount: Boolean(item.statistics.hiddenSubscriberCount),
+        }
+      : undefined,
   };
 }
 
@@ -55,7 +121,7 @@ export async function fetchAuthenticatedChannels(
   accessToken: string
 ): Promise<YouTubeChannelInfo[]> {
   const res = await fetch(
-    "https://www.googleapis.com/youtube/v3/channels?part=snippet&mine=true",
+    "https://www.googleapis.com/youtube/v3/channels?part=snippet,statistics,contentDetails&mine=true",
     {
       headers: {
         Authorization: `Bearer ${accessToken}`,
@@ -132,8 +198,6 @@ export async function fetchChannelWithRecentVideos(
   const trimmed = input.trim();
   if (!trimmed) return null;
 
-  const params = new URLSearchParams({ part: "snippet,contentDetails" });
-
   const channelIdMatch =
     trimmed.match(/youtube\.com\/channel\/(UC[a-zA-Z0-9_-]+)/i) ||
     trimmed.match(/^(UC[a-zA-Z0-9_-]{20,})$/);
@@ -142,38 +206,69 @@ export async function fetchChannelWithRecentVideos(
     trimmed.match(/youtube\.com\/@([a-zA-Z0-9._-]+)/i) ||
     trimmed.match(/^@([a-zA-Z0-9._-]+)$/);
 
+  const userMatch = trimmed.match(/youtube\.com\/user\/([a-zA-Z0-9._-]+)/i);
+  const customMatch = trimmed.match(/youtube\.com\/c\/([a-zA-Z0-9._-]+)/i);
+
+  const queryChannels = async (
+    queryKey: "id" | "forHandle" | "forUsername",
+    queryVal: string
+  ) => {
+    const params = new URLSearchParams({ part: "snippet,contentDetails" });
+    params.set(queryKey, queryVal);
+
+    const res = await fetch(
+      `https://www.googleapis.com/youtube/v3/channels?${params.toString()}`,
+      {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+      }
+    );
+
+    if (res.status === 401) {
+      throw new Error("De YouTube-sessie is verlopen. Koppel je account opnieuw.");
+    }
+
+    if (!res.ok) {
+      const errBody = await res.json().catch(() => null);
+      throw new Error(
+        errBody?.error?.message || `Kanaal ophalen mislukt (HTTP ${res.status}).`
+      );
+    }
+
+    const data = (await res.json()) as {
+      items?: Array<
+        RawChannelItem & {
+          contentDetails?: {
+            relatedPlaylists?: { uploads?: string };
+          };
+        }
+      >;
+    };
+    return data.items?.[0] || null;
+  };
+
+  let first:
+    | (RawChannelItem & {
+        contentDetails?: { relatedPlaylists?: { uploads?: string } };
+      })
+    | null = null;
+
   if (channelIdMatch) {
-    params.set("id", channelIdMatch[1]);
+    first = await queryChannels("id", channelIdMatch[1]);
   } else if (handleMatch) {
-    params.set("forHandle", `@${handleMatch[1]}`);
+    first = await queryChannels("forHandle", `@${handleMatch[1]}`);
+  } else if (userMatch) {
+    first = await queryChannels("forUsername", userMatch[1]);
+  } else if (customMatch) {
+    first = await queryChannels("forHandle", `@${customMatch[1]}`);
+    if (!first) {
+      first = await queryChannels("forUsername", customMatch[1]);
+    }
   } else {
     return null;
   }
 
-  const res = await fetch(
-    `https://www.googleapis.com/youtube/v3/channels?${params.toString()}`,
-    {
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-      },
-    }
-  );
-
-  if (!res.ok) {
-    throw new Error(`Kanaal ophalen mislukt (HTTP ${res.status}).`);
-  }
-
-  const data = (await res.json()) as {
-    items?: Array<
-      RawChannelItem & {
-        contentDetails?: {
-          relatedPlaylists?: { uploads?: string };
-        };
-      }
-    >;
-  };
-
-  const first = data.items?.[0];
   if (!first) return null;
 
   const channel = mapChannelItem(first);
@@ -207,6 +302,10 @@ export async function fetchChannelWithRecentVideos(
       }
     );
 
+    if (plRes.status === 401) {
+      throw new Error("De YouTube-sessie is verlopen. Koppel je account opnieuw.");
+    }
+
     if (!plRes.ok) {
       break;
     }
@@ -239,6 +338,10 @@ export async function fetchChannelWithRecentVideos(
         },
       }
     );
+
+    if (vidRes.status === 401) {
+      throw new Error("De YouTube-sessie is verlopen. Koppel je account opnieuw.");
+    }
 
     if (vidRes.ok) {
       const vidData = (await vidRes.json()) as {
@@ -290,6 +393,204 @@ export async function fetchChannelWithRecentVideos(
   }
 
   return { channel, videos: longVideos };
+}
+
+export async function fetchChannelStudioSnapshot(
+  accessToken: string,
+  channel: YouTubeChannelInfo,
+  maxResults = 20
+): Promise<YouTubeStudioSnapshot> {
+  let uploadsPlaylistId = channel.uploadsPlaylistId;
+
+  if (!uploadsPlaylistId) {
+    const chRes = await fetch(
+      `https://www.googleapis.com/youtube/v3/channels?part=snippet,statistics,contentDetails&id=${encodeURIComponent(channel.id)}`,
+      {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+      }
+    );
+    if (chRes.status === 401) {
+      throw new Error("De YouTube-sessie is verlopen. Koppel je account opnieuw.");
+    }
+    if (chRes.ok) {
+      const chData = (await chRes.json()) as { items?: RawChannelItem[] };
+      const first = chData.items?.[0];
+      if (first) {
+        const mapped = mapChannelItem(first);
+        uploadsPlaylistId = mapped.uploadsPlaylistId;
+      }
+    }
+  }
+
+  const recentVideos: YouTubeChannelVideoStat[] = [];
+
+  if (uploadsPlaylistId) {
+    const plParams = new URLSearchParams({
+      part: "contentDetails",
+      playlistId: uploadsPlaylistId,
+      maxResults: String(Math.min(50, Math.max(1, maxResults))),
+    });
+
+    const plRes = await fetch(
+      `https://www.googleapis.com/youtube/v3/playlistItems?${plParams.toString()}`,
+      {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+      }
+    );
+
+    if (plRes.status === 401) {
+      throw new Error("De YouTube-sessie is verlopen. Koppel je account opnieuw.");
+    }
+
+    if (plRes.ok) {
+      const plData = (await plRes.json()) as {
+        items?: Array<{ contentDetails?: { videoId?: string } }>;
+      };
+
+      const videoIds = (plData.items || [])
+        .map((i) => i.contentDetails?.videoId || "")
+        .filter(Boolean);
+
+      if (videoIds.length > 0) {
+        const vidParams = new URLSearchParams({
+          part: "snippet,statistics,contentDetails",
+          id: videoIds.join(","),
+        });
+
+        const vidRes = await fetch(
+          `https://www.googleapis.com/youtube/v3/videos?${vidParams.toString()}`,
+          {
+            headers: {
+              Authorization: `Bearer ${accessToken}`,
+            },
+          }
+        );
+
+        if (vidRes.status === 401) {
+          throw new Error("De YouTube-sessie is verlopen. Koppel je account opnieuw.");
+        }
+
+        if (vidRes.ok) {
+          const vidData = (await vidRes.json()) as {
+            items?: Array<{
+              id?: string;
+              snippet?: {
+                title?: string;
+                publishedAt?: string;
+                thumbnails?: {
+                  medium?: { url?: string };
+                  default?: { url?: string };
+                };
+              };
+              contentDetails?: {
+                duration?: string;
+              };
+              statistics?: {
+                viewCount?: string;
+                likeCount?: string;
+                commentCount?: string;
+              };
+            }>;
+          };
+
+          const nowMs = Date.now();
+          for (const item of vidData.items || []) {
+            const id = item.id || "";
+            if (!id) continue;
+
+            const title = item.snippet?.title || "Zonder titel";
+            const publishedAt = item.snippet?.publishedAt || "";
+            const durationSec = parseIso8601DurationSeconds(
+              item.contentDetails?.duration
+            );
+            const viewCount = Number(item.statistics?.viewCount || 0);
+            const likeCount = Number(item.statistics?.likeCount || 0);
+            const commentCount = Number(item.statistics?.commentCount || 0);
+
+            const publishedMs = publishedAt ? new Date(publishedAt).getTime() : nowMs;
+            const daysSince = Number.isNaN(publishedMs)
+              ? 1
+              : Math.max(1, (nowMs - publishedMs) / (1000 * 60 * 60 * 24));
+
+            const engagementRate =
+              viewCount > 0
+                ? Number((((likeCount + commentCount) / viewCount) * 100).toFixed(2))
+                : 0;
+            const viewsPerDay = Math.round(viewCount / daysSince);
+            const isShort =
+              durationSec <= 61 || /#shorts\b/i.test(title);
+
+            recentVideos.push({
+              id,
+              title,
+              publishedAt,
+              durationSec,
+              durationLabel: formatDurationLabel(durationSec),
+              format: isShort ? "Short" : "Video",
+              thumbnailUrl:
+                item.snippet?.thumbnails?.medium?.url ||
+                item.snippet?.thumbnails?.default?.url,
+              watchUrl: isShort
+                ? `https://youtube.com/shorts/${id}`
+                : `https://www.youtube.com/watch?v=${id}`,
+              viewCount,
+              likeCount,
+              commentCount,
+              engagementRate,
+              viewsPerDay,
+            });
+          }
+        }
+      }
+    }
+  }
+
+  const sampleSize = recentVideos.length;
+  const totalViews = recentVideos.reduce((acc, v) => acc + v.viewCount, 0);
+  const totalLikes = recentVideos.reduce((acc, v) => acc + v.likeCount, 0);
+  const totalEng = recentVideos.reduce((acc, v) => acc + v.engagementRate, 0);
+  const totalVpd = recentVideos.reduce((acc, v) => acc + v.viewsPerDay, 0);
+
+  const shorts = recentVideos.filter((v) => v.format === "Short");
+  const longs = recentVideos.filter((v) => v.format === "Video");
+  const sortedByViews = [...recentVideos].sort(
+    (a, b) => b.viewCount - a.viewCount
+  );
+
+  const summary: YouTubeStudioSummary = {
+    sampleSize,
+    avgViews: sampleSize > 0 ? Math.round(totalViews / sampleSize) : 0,
+    avgLikes: sampleSize > 0 ? Math.round(totalLikes / sampleSize) : 0,
+    avgEngagementRate:
+      sampleSize > 0 ? Number((totalEng / sampleSize).toFixed(2)) : 0,
+    avgViewsPerDay: sampleSize > 0 ? Math.round(totalVpd / sampleSize) : 0,
+    shortsCount: shorts.length,
+    shortsAvgViews:
+      shorts.length > 0
+        ? Math.round(shorts.reduce((a, v) => a + v.viewCount, 0) / shorts.length)
+        : 0,
+    longVideosCount: longs.length,
+    longVideosAvgViews:
+      longs.length > 0
+        ? Math.round(longs.reduce((a, v) => a + v.viewCount, 0) / longs.length)
+        : 0,
+    topVideo: sortedByViews[0] || null,
+    lowestVideo:
+      sortedByViews.length > 1
+        ? sortedByViews[sortedByViews.length - 1]
+        : null,
+    fetchedAtIso: new Date().toISOString(),
+  };
+
+  return {
+    channel,
+    recentVideos,
+    summary,
+  };
 }
 
 export async function uploadShortToYouTube(

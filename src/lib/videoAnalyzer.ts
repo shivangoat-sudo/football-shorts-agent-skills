@@ -144,12 +144,29 @@ export async function probeVideoMetadata(videoUrl: string): Promise<VideoMetadat
 
   try {
     await new Promise<void>((resolve, reject) => {
-      video.addEventListener("loadedmetadata", () => resolve(), { once: true });
-      video.addEventListener(
-        "error",
-        () => reject(new Error("Video kon niet worden gelezen.")),
-        { once: true }
-      );
+      const timer = setTimeout(() => {
+        cleanup();
+        reject(
+          new Error(
+            "Video-eigenschappen laden duurde te lang. Probeer een ander .mp4- of .webm-bestand."
+          )
+        );
+      }, 10_000);
+      const onLoaded = () => {
+        cleanup();
+        resolve();
+      };
+      const onErr = () => {
+        cleanup();
+        reject(new Error("Video kon niet worden gelezen."));
+      };
+      const cleanup = () => {
+        clearTimeout(timer);
+        video.removeEventListener("loadedmetadata", onLoaded);
+        video.removeEventListener("error", onErr);
+      };
+      video.addEventListener("loadedmetadata", onLoaded);
+      video.addEventListener("error", onErr);
     });
 
     return {
@@ -297,12 +314,29 @@ export async function trackPodcastClipKeyframes(
 
   try {
     await new Promise<void>((resolve, reject) => {
-      video.addEventListener("loadedmetadata", () => resolve(), { once: true });
-      video.addEventListener(
-        "error",
-        () => reject(new Error("Video kon niet worden gelezen voor spreker-tracking.")),
-        { once: true }
-      );
+      const timer = setTimeout(() => {
+        cleanup();
+        reject(
+          new Error("Video laden voor spreker-tracking duurde te lang.")
+        );
+      }, 10_000);
+      const onLoaded = () => {
+        cleanup();
+        resolve();
+      };
+      const onErr = () => {
+        cleanup();
+        reject(
+          new Error("Video kon niet worden gelezen voor spreker-tracking.")
+        );
+      };
+      const cleanup = () => {
+        clearTimeout(timer);
+        video.removeEventListener("loadedmetadata", onLoaded);
+        video.removeEventListener("error", onErr);
+      };
+      video.addEventListener("loadedmetadata", onLoaded);
+      video.addEventListener("error", onErr);
     });
 
     if (!ctx) {
@@ -314,11 +348,16 @@ export async function trackPodcastClipKeyframes(
 
     const seekTo = (t: number) =>
       new Promise<void>((resolve) => {
-        const onSeeked = () => {
-          video.removeEventListener("seeked", onSeeked);
+        let done = false;
+        const finish = () => {
+          if (done) return;
+          done = true;
+          clearTimeout(timer);
+          video.removeEventListener("seeked", finish);
           resolve();
         };
-        video.addEventListener("seeked", onSeeked, { once: true });
+        const timer = setTimeout(finish, 1500);
+        video.addEventListener("seeked", finish);
         video.currentTime = t;
       });
 
@@ -508,16 +547,23 @@ export async function analyzePodcastWithGemini(params: {
       : "Gemini transcribeert spraak en scoort virale hooks..."
   );
 
-  const response = await fetch("/api/podcast/analyze", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      transcript: trimmedTranscript || undefined,
-      audioChunks: audioChunks.length > 0 ? audioChunks : undefined,
-      durationSec: meta.durationSec,
-      sourceTitle: sourceTitle || file?.name || "",
-    }),
-  });
+  let response: Response;
+  try {
+    response = await fetch("/api/podcast/analyze", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        transcript: trimmedTranscript || undefined,
+        audioChunks: audioChunks.length > 0 ? audioChunks : undefined,
+        durationSec: meta.durationSec,
+        sourceTitle: sourceTitle || file?.name || "",
+      }),
+    });
+  } catch {
+    throw new Error(
+      "De verbinding met de server werd tijdelijk onderbroken tijdens het analyseren. Probeer opnieuw."
+    );
+  }
 
   const payload = (await response.json().catch(() => ({}))) as {
     error?: string;

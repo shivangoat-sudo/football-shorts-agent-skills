@@ -1,5 +1,6 @@
 import { useEffect, useState, type CSSProperties } from "react";
 import {
+  AlertCircle,
   CalendarClock,
   Check,
   Download,
@@ -10,7 +11,6 @@ import {
   ShieldCheck,
   UploadCloud,
 } from "lucide-react";
-import type { User } from "firebase/auth";
 import type { ExportedShortResult } from "../lib/shortExporter";
 import {
   uploadShortToYouTube,
@@ -18,15 +18,21 @@ import {
   type YouTubeChannelInfo,
   type YouTubePrivacyStatus,
 } from "../lib/youtubeApi";
+import type {
+  YouTubeAuthFailureInfo,
+  YouTubeAuthUser,
+} from "../lib/youtubeAuth";
 
 interface YouTubePublishPanelProps {
-  authUser: User | null;
+  authUser: YouTubeAuthUser | null;
   accessToken: string | null;
+  authError: YouTubeAuthFailureInfo | null;
   channels: YouTubeChannelInfo[];
   confirmedChannelId: string | null;
   isAuthenticating: boolean;
   exportedShort: ExportedShortResult | null;
   onSignIn: () => Promise<void>;
+  onRedirectSignIn: () => Promise<void>;
   onSignOut: () => Promise<void>;
   onConfirmChannel: (channelId: string) => void;
   onNotice: (message: string) => void;
@@ -35,11 +41,13 @@ interface YouTubePublishPanelProps {
 export default function YouTubePublishPanel({
   authUser,
   accessToken,
+  authError,
   channels,
   confirmedChannelId,
   isAuthenticating,
   exportedShort,
   onSignIn,
+  onRedirectSignIn,
   onSignOut,
   onConfirmChannel,
   onNotice,
@@ -48,11 +56,11 @@ export default function YouTubePublishPanel({
     channels[0]?.id || ""
   );
   const [title, setTitle] = useState(
-    exportedShort?.suggestedTitle
-      ? `${exportedShort.suggestedTitle} #Shorts`
-      : "Podcast Highlight #Shorts"
+    exportedShort?.suggestedTitle || "Composed Gentleman Principle #Shorts"
   );
-  const [description, setDescription] = useState("#Shorts #Podcast");
+  const [description, setDescription] = useState(
+    exportedShort?.suggestedDescription || "#Shorts #Confidence #Mindset"
+  );
   const [publishMode, setPublishMode] = useState<
     "private" | "unlisted" | "scheduled" | "public"
   >("private");
@@ -65,10 +73,36 @@ export default function YouTubePublishPanel({
   );
 
   useEffect(() => {
-    if (exportedShort?.suggestedTitle) {
-      setTitle(`${exportedShort.suggestedTitle} #Shorts`);
+    if (channels.length === 0) {
+      setSelectedCandidateId("");
+      return;
     }
-  }, [exportedShort?.suggestedTitle]);
+    setSelectedCandidateId((prev) =>
+      prev && channels.some((c) => c.id === prev) ? prev : channels[0].id
+    );
+  }, [channels]);
+
+  useEffect(() => {
+    if (exportedShort?.suggestedTitle) {
+      setTitle(exportedShort.suggestedTitle);
+    }
+    if (exportedShort?.suggestedDescription) {
+      setDescription(exportedShort.suggestedDescription);
+    }
+    if (exportedShort?.scheduledPublishAt) {
+      const d = new Date(exportedShort.scheduledPublishAt);
+      if (!Number.isNaN(d.getTime()) && d.getTime() > Date.now() + 60_000) {
+        const pad = (n: number) => String(n).padStart(2, "0");
+        const localStr = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+        setPublishMode("scheduled");
+        setScheduleLocal(localStr);
+      }
+    }
+  }, [
+    exportedShort?.suggestedTitle,
+    exportedShort?.suggestedDescription,
+    exportedShort?.scheduledPublishAt,
+  ]);
 
   const activeCandidate =
     channels.find((c) => c.id === (confirmedChannelId || selectedCandidateId)) ||
@@ -81,21 +115,21 @@ export default function YouTubePublishPanel({
 
   function handleOpenConfirm() {
     if (!exportedShort) {
-      onNotice("Exporteer eerst een Short in stap 2 voordat je uploadt.");
+      onNotice("Export a video first in Step 2 before uploading.");
       return;
     }
     if (!title.trim()) {
-      onNotice("Vul een videotitel in voor YouTube.");
+      onNotice("Enter a video title for YouTube.");
       return;
     }
     if (publishMode === "scheduled") {
       if (!scheduleLocal) {
-        onNotice("Kies een datum en tijd om de Short in te plannen.");
+        onNotice("Pick a future date and time to schedule the release.");
         return;
       }
       const targetMs = new Date(scheduleLocal).getTime();
       if (Number.isNaN(targetMs) || targetMs <= Date.now() + 60_000) {
-        onNotice("Kies een tijdstip in de toekomst (minstens 2 minuten vooruit).");
+        onNotice("Choose a release timestamp at least 2 minutes in the future.");
         return;
       }
     }
@@ -110,7 +144,7 @@ export default function YouTubePublishPanel({
     setUploading(true);
     setUploadProgress(0);
     setUploadedResult(null);
-    onNotice("Short wordt geüpload naar je bevestigde YouTube-kanaal...");
+    onNotice("Uploading approved video to your verified YouTube channel...");
 
     try {
       const scheduledIso =
@@ -134,11 +168,11 @@ export default function YouTubePublishPanel({
 
       setUploadedResult(result);
       onNotice(
-        `Geüpload naar '${result.channelTitle}' (ID: ${result.videoId}).`
+        `Uploaded to '${result.channelTitle}' (Video ID: ${result.videoId}).`
       );
     } catch (err) {
       const msg =
-        err instanceof Error ? err.message : "Uploaden naar YouTube is mislukt.";
+        err instanceof Error ? err.message : "Upload to YouTube failed.";
       onNotice(msg);
     } finally {
       setUploading(false);
@@ -146,12 +180,12 @@ export default function YouTubePublishPanel({
   }
 
   function renderModeSummary(): string {
-    if (publishMode === "private") return "Privé (alleen voor jou zichtbaar)";
-    if (publishMode === "unlisted") return "Verborgen (alleen via link)";
-    if (publishMode === "public") return "Direct openbaar";
+    if (publishMode === "private") return "Private (only visible to you)";
+    if (publishMode === "unlisted") return "Unlisted (accessible via link)";
+    if (publishMode === "public") return "Public immediately";
     return scheduleLocal
-      ? `Ingepland voor ${new Date(scheduleLocal).toLocaleString("nl-NL")}`
-      : "Ingepland";
+      ? `Scheduled Public at ${new Date(scheduleLocal).toLocaleString("en-US")}`
+      : "Scheduled Public at Peak Window";
   }
 
   return (
@@ -160,10 +194,10 @@ export default function YouTubePublishPanel({
       <div className="oauth-section">
         <div className="section-subhead">
           <div>
-            <h3>1. YouTube-account & kanaalverificatie</h3>
+            <h3>1. YouTube Account &amp; Channel Verification</h3>
             <p>
-              Koppel je Google-account om je doelkanaal te bevestigen en Shorts
-              rechtstreeks te uploaden.
+              Connect your Google account, confirm the exact destination channel
+              identity, and upload approved videos directly.
             </p>
           </div>
           {accessToken && (
@@ -174,77 +208,108 @@ export default function YouTubePublishPanel({
               disabled={uploading}
             >
               <LogOut size={14} aria-hidden="true" />
-              Koppeling verbreken
+              Disconnect
             </button>
           )}
         </div>
 
         {!accessToken ? (
-          <div className="oauth-connect-box">
-            <div className="oauth-connect-copy">
-              <strong>Nog niet gekoppeld aan YouTube</strong>
-              <span>
-                Je toegangstoken wordt alleen tijdelijk in het geheugen van deze
-                pagina bewaard.
-              </span>
-            </div>
-            <button
-              type="button"
-              className="gsi-material-button"
-              onClick={onSignIn}
-              disabled={isAuthenticating}
-            >
-              <div className="gsi-material-button-state" />
-              <div className="gsi-material-button-content-wrapper">
-                <div className="gsi-material-button-icon">
-                  <svg
-                    version="1.1"
-                    xmlns="http://www.w3.org/2000/svg"
-                    viewBox="0 0 48 48"
-                    className="gsi-svg"
-                  >
-                    <path
-                      fill="#EA4335"
-                      d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"
-                    />
-                    <path
-                      fill="#4285F4"
-                      d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"
-                    />
-                    <path
-                      fill="#FBBC05"
-                      d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"
-                    />
-                    <path
-                      fill="#34A853"
-                      d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"
-                    />
-                    <path fill="none" d="M0 0h48v48H0z" />
-                  </svg>
-                </div>
-                <span className="gsi-material-button-contents">
-                  {isAuthenticating ? "Bezig met koppelen..." : "Inloggen met Google"}
+          <>
+            <div className="oauth-connect-box">
+              <div className="oauth-connect-copy">
+                <strong>Not connected to YouTube yet</strong>
+                <span>
+                  Your OAuth access token stays strictly in page memory during this
+                  session.
                 </span>
               </div>
-            </button>
-          </div>
+              <button
+                type="button"
+                className="gsi-material-button"
+                onClick={onSignIn}
+                disabled={isAuthenticating}
+              >
+                <div className="gsi-material-button-state" />
+                <div className="gsi-material-button-content-wrapper">
+                  <div className="gsi-material-button-icon">
+                    <svg
+                      version="1.1"
+                      xmlns="http://www.w3.org/2000/svg"
+                      viewBox="0 0 48 48"
+                      className="gsi-svg"
+                    >
+                      <path
+                        fill="#EA4335"
+                        d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"
+                      />
+                      <path
+                        fill="#4285F4"
+                        d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"
+                      />
+                      <path
+                        fill="#FBBC05"
+                        d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"
+                      />
+                      <path
+                        fill="#34A853"
+                        d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"
+                      />
+                      <path fill="none" d="M0 0h48v48H0z" />
+                    </svg>
+                  </div>
+                  <span className="gsi-material-button-contents">
+                    {isAuthenticating ? "Connecting..." : "Sign in with Google"}
+                  </span>
+                </div>
+              </button>
+            </div>
+            {authError && (
+              <div className="error-banner studio-error-banner" role="alert">
+                <AlertCircle size={15} aria-hidden="true" />
+                <div className="studio-error-copy">
+                  <span>{authError.message}</span>
+                  {(authError.suggestFullTab || authError.suggestRedirect) && (
+                    <div className="error-banner-actions">
+                      {authError.suggestFullTab && (
+                        <a
+                          href={typeof window !== "undefined" ? window.location.href : "/"}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="btn-primary btn-compact"
+                        >
+                          Open in new tab
+                          <ExternalLink size={12} aria-hidden="true" />
+                        </a>
+                      )}
+                      {authError.suggestRedirect && (
+                        <button
+                          type="button"
+                          className="btn-primary btn-compact"
+                          onClick={() => void onRedirectSignIn()}
+                        >
+                          Sign in via redirect
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </>
         ) : channels.length === 0 ? (
           <div className="oauth-empty-channel">
             <p>
-              Ingelogd als <strong>{authUser?.email || "Google-account"}</strong>,
-              maar dit profiel heeft geen direct gekoppeld YouTube-kanaal. Staat
-              je kanaal op een <strong>Merkaccount (Brand Account)</strong>? Klik
-              dan op <em>Koppeling verbreken</em>, log opnieuw in en kies na je
-              e-mailadres je kanaal/Merkaccount (let op: kanalen met alleen
-              Studio-machtigingen zonder eigenaarschap werken niet via de YouTube
-              API).
+              Signed in as <strong>{authUser?.email || "Google account"}</strong>,
+              but no directly owned YouTube channel was found. If your channel is
+              on a <strong>Brand Account</strong>, click <em>Disconnect</em>, sign
+              in again, and choose the target channel directly.
             </p>
           </div>
         ) : (
           <div className="channel-verify-box">
             {channels.length > 1 && (
               <div className="field-group">
-                <label htmlFor="channel-select">Kies doelkanaal</label>
+                <label htmlFor="channel-select">Choose destination channel</label>
                 <select
                   id="channel-select"
                   className="select-input"
@@ -289,7 +354,7 @@ export default function YouTubePublishPanel({
                 {isChannelConfirmed && confirmedChannelId === activeCandidate.id ? (
                   <span className="confirmed-text">
                     <Check size={14} aria-hidden="true" />
-                    Bevestigd
+                    Verified
                   </span>
                 ) : (
                   <button
@@ -297,7 +362,7 @@ export default function YouTubePublishPanel({
                     className="btn-primary btn-compact"
                     onClick={() => onConfirmChannel(activeCandidate.id)}
                   >
-                    Kanaal bevestigen
+                    Confirm Channel
                   </button>
                 )}
               </div>
@@ -306,14 +371,14 @@ export default function YouTubePublishPanel({
         )}
       </div>
 
-      {/* 2. Exported Short & Upload Controls */}
+      {/* 2. Exported Video & Upload Controls */}
       <div className="oauth-section">
         <div className="section-subhead">
           <div>
-            <h3>2. Gemaakte Short & upload-instellingen</h3>
+            <h3>2. Exported Video &amp; Release Settings</h3>
             <p>
-              Standaard worden uploads als Privé ingesteld zodat je het resultaat
-              eerst rustig kunt controleren.
+              Uploads default to Private or Scheduled until you explicitly choose
+              otherwise in the pre-publish review gate.
             </p>
           </div>
         </div>
@@ -323,10 +388,10 @@ export default function YouTubePublishPanel({
             <div className="empty-icon" aria-hidden="true">
               <LockKeyhole size={20} />
             </div>
-            <h3>Nog geen Short geëxporteerd</h3>
+            <h3>No rendered video queued yet</h3>
             <p>
-              Maak eerst een 9:16-uitsnede in de Shorts-editor en klik op
-              ‘Short exporteren’. Daarna kun je hier downloaden of uploaden naar YouTube.
+              Render your 9:16 Short or 16:9 Sunday Episode in the Series Studio
+              first, then approve it to stage it for YouTube release.
             </p>
           </div>
         ) : (
@@ -344,13 +409,25 @@ export default function YouTubePublishPanel({
                 className="btn-secondary btn-compact download-fallback"
               >
                 <Download size={14} aria-hidden="true" />
-                Lokaal downloaden ({Math.round(exportedShort.durationSec)}s)
+                Download Local ({Math.round(exportedShort.durationSec)}s)
               </a>
+              {exportedShort.thumbnailHook && (
+                <div className="thumb-hook-note">
+                  <span>Thumbnail Hook</span>
+                  <strong>{exportedShort.thumbnailHook}</strong>
+                </div>
+              )}
+              {exportedShort.seriesLabel && (
+                <div className="thumb-hook-note">
+                  <span>Series &amp; Schedule Slot</span>
+                  <strong>{exportedShort.seriesLabel}</strong>
+                </div>
+              )}
             </div>
 
             <div className="publish-form-col">
               <div className="field-group">
-                <label htmlFor="yt-title">Titel</label>
+                <label htmlFor="yt-title">YouTube Title</label>
                 <div className="input-box">
                   <input
                     id="yt-title"
@@ -359,34 +436,34 @@ export default function YouTubePublishPanel({
                     value={title}
                     disabled={uploading}
                     onChange={(e) => setTitle(e.target.value)}
-                    placeholder="Titel van je Short"
+                    placeholder="Video title"
                   />
                 </div>
               </div>
 
               <div className="field-group">
-                <label htmlFor="yt-desc">Beschrijving</label>
+                <label htmlFor="yt-desc">Description &amp; Hashtags</label>
                 <textarea
                   id="yt-desc"
-                  rows={2}
+                  rows={3}
                   maxLength={2000}
                   className="textarea-box"
                   value={description}
                   disabled={uploading}
                   onChange={(e) => setDescription(e.target.value)}
-                  placeholder="#Shorts #Podcast"
+                  placeholder="#Shorts #Confidence #Mindset"
                 />
               </div>
 
               <div className="field-group">
-                <label>Zichtbaarheid & planning</label>
-                <div className="segmented-group" role="group" aria-label="Zichtbaarheid">
+                <label>Visibility &amp; Release Timing</label>
+                <div className="segmented-group" role="group" aria-label="Visibility">
                   {(
                     [
-                      { id: "private", label: "Privé" },
-                      { id: "unlisted", label: "Verborgen" },
-                      { id: "scheduled", label: "Inplannen" },
-                      { id: "public", label: "Openbaar" },
+                      { id: "scheduled", label: "Schedule Public (Peak)" },
+                      { id: "public", label: "Public Now" },
+                      { id: "unlisted", label: "Unlisted" },
+                      { id: "private", label: "Private" },
                     ] as const
                   ).map((mode) => (
                     <button
@@ -406,7 +483,7 @@ export default function YouTubePublishPanel({
 
               {publishMode === "scheduled" && (
                 <div className="field-group">
-                  <label htmlFor="yt-schedule">Publicatiedatum & tijdstip</label>
+                  <label htmlFor="yt-schedule">Scheduled Publish Date &amp; Time</label>
                   <div className="input-box">
                     <CalendarClock size={16} className="input-icon" aria-hidden="true" />
                     <input
@@ -423,7 +500,7 @@ export default function YouTubePublishPanel({
               {uploading && (
                 <div className="export-progress" aria-live="polite">
                   <div className="progress-meta">
-                    <span>Uploaden naar YouTube...</span>
+                    <span>Uploading to YouTube...</span>
                     <span>{uploadProgress}%</span>
                   </div>
                   <div className="progress-track">
@@ -438,13 +515,13 @@ export default function YouTubePublishPanel({
               {uploadedResult && (
                 <div className="upload-success-box">
                   <div>
-                    <strong>Geüpload naar {uploadedResult.channelTitle}</strong>
+                    <strong>Uploaded to {uploadedResult.channelTitle}</strong>
                     <span>
-                      Video-ID: {uploadedResult.videoId} ·{" "}
+                      Video ID: {uploadedResult.videoId} ·{" "}
                       {uploadedResult.publishAt
-                        ? `Ingepland voor ${new Date(
+                        ? `Scheduled for ${new Date(
                             uploadedResult.publishAt
-                          ).toLocaleString("nl-NL")}`
+                          ).toLocaleString("en-US")}`
                         : uploadedResult.privacyStatus}
                     </span>
                   </div>
@@ -468,11 +545,11 @@ export default function YouTubePublishPanel({
                   onClick={handleOpenConfirm}
                 >
                   <UploadCloud size={15} aria-hidden="true" />
-                  {uploading ? "Bezig met uploaden..." : "Uploaden naar YouTube"}
+                  {uploading ? "Uploading..." : "Upload to YouTube"}
                 </button>
                 {!accessToken || !isChannelConfirmed ? (
                   <span className="quiet-assurance">
-                    Koppel en bevestig eerst je doelkanaal hierboven.
+                    Connect and confirm your destination channel above first.
                   </span>
                 ) : null}
               </div>
@@ -492,46 +569,46 @@ export default function YouTubePublishPanel({
           <div className="modal-card">
             <div className="modal-head">
               <ShieldCheck size={18} aria-hidden="true" />
-              <h3 id="confirm-upload-title">Upload naar YouTube bevestigen</h3>
+              <h3 id="confirm-upload-title">Confirm YouTube Upload</h3>
             </div>
             <p className="modal-desc">
-              Controleer het exacte doelkanaal en de instellingen voordat het
-              videobestand wordt verzonden:
+              Verify the exact destination channel and release settings before
+              submitting the video file:
             </p>
             <dl className="confirm-list">
               <div>
-                <dt>Doelkanaal</dt>
+                <dt>Destination Channel</dt>
                 <dd>
                   {activeCandidate.title} ({activeCandidate.id})
                 </dd>
               </div>
               <div>
-                <dt>Titel</dt>
+                <dt>Title</dt>
                 <dd>{title.trim()}</dd>
               </div>
               <div>
-                <dt>Zichtbaarheid</dt>
+                <dt>Visibility</dt>
                 <dd>{renderModeSummary()}</dd>
               </div>
             </dl>
             <p className="terms-notice">
-              Door te bevestigen verklaar je dat deze upload voldoet aan de{" "}
+              By confirming, you attest that this upload complies with the{" "}
               <a
                 href="https://www.youtube.com/t/terms"
                 target="_blank"
                 rel="noreferrer"
               >
-                YouTube-servicevoorwaarden
+                YouTube Terms of Service
               </a>{" "}
-              en{" "}
+              and{" "}
               <a
                 href="https://www.youtube.com/howyoutubeworks/policies/community-guidelines/"
                 target="_blank"
                 rel="noreferrer"
               >
-                Communityrichtlijnen
+                Community Guidelines
               </a>
-              , en dat je over de benodigde rechten beschikt.
+              , and that you hold full rights to all audio and visuals.
             </p>
             <div className="modal-actions">
               <button
@@ -539,14 +616,14 @@ export default function YouTubePublishPanel({
                 className="btn-secondary"
                 onClick={() => setShowConfirmModal(false)}
               >
-                Annuleren
+                Cancel
               </button>
               <button
                 type="button"
                 className="btn-primary"
                 onClick={handleConfirmUpload}
               >
-                Bevestig en upload
+                Confirm &amp; Upload
               </button>
             </div>
           </div>

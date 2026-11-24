@@ -37,6 +37,7 @@ import {
   probeVideoMetadata,
   trackPodcastClipKeyframes,
   type FocusKeyframe,
+  type PodcastAnalysisResult,
   type PodcastClipMoment,
   type TimedCaption,
 } from "../lib/videoAnalyzer";
@@ -45,11 +46,22 @@ import {
   type ExportedShortResult,
 } from "../lib/shortExporter";
 
+const podcastAnalysisCache = new Map<string, PodcastAnalysisResult>();
+
+function cachePodcastAnalysis(url: string, result: PodcastAnalysisResult) {
+  if (podcastAnalysisCache.size >= 3) {
+    const oldestKey = podcastAnalysisCache.keys().next().value;
+    if (oldestKey) podcastAnalysisCache.delete(oldestKey);
+  }
+  podcastAnalysisCache.set(url, result);
+}
+
 interface ShortsEditorProps {
   videoFile: File | null;
   videoUrl: string | null;
   sourceTitle?: string;
   exportedShort: ExportedShortResult | null;
+  isActive?: boolean;
   onSelectVideo: (file: File) => void;
   onExportComplete: (result: ExportedShortResult) => void;
   onBack: () => void;
@@ -93,6 +105,7 @@ export default function ShortsEditor({
   videoUrl,
   sourceTitle,
   exportedShort,
+  isActive = true,
   onSelectVideo,
   onExportComplete,
   onBack,
@@ -142,7 +155,7 @@ export default function ShortsEditor({
     zoom: 1.12,
   });
 
-  const [selectedFilterId, setSelectedFilterId] = useState("crisp");
+  const [selectedFilterId, setSelectedFilterId] = useState("beyond-attraction");
   const [captionsEnabled, setCaptionsEnabled] = useState(true);
   const [timedCaptionsRaw, setTimedCaptionsRaw] = useState("");
   const [fallbackCaption, setFallbackCaption] = useState("");
@@ -250,9 +263,62 @@ export default function ShortsEditor({
     };
   }, []);
 
+  useEffect(() => {
+    if (!isActive && videoRef.current && !videoRef.current.paused) {
+      videoRef.current.pause();
+      setIsPlaying(false);
+    }
+  }, [isActive]);
+
+  const applyAnalysisResult = useCallback(
+    (res: PodcastAnalysisResult, transcriptOverride: string) => {
+      setDurationSec(res.durationSec);
+      setDimensions({ w: res.width, h: res.height });
+      setTrackingMode(res.trackingMode);
+      setDetectedLanguage(res.language);
+      setFilteredOutCount(res.filteredOutCount);
+      setMoments(res.clips);
+      setManualKeyframes(null);
+      if (res.transcript && !transcriptOverride.trim()) {
+        setTranscriptText(res.transcript);
+      }
+
+      if (res.clips.length > 0) {
+        const best = res.clips[0];
+        setSelectedMomentId(best.id);
+        setStartSec(best.startSec);
+        setClipDuration(best.durationSec);
+        setTimedCaptionsRaw(serializeTimedCaptions(best.captions));
+        setFallbackCaption(best.hookQuote || best.title);
+        if (videoRef.current) {
+          videoRef.current.currentTime = best.startSec;
+        }
+        onNotice(
+          `${res.clips.length} virale podcast-clip(s) gevonden (score ≥ 75 · taal: ${res.language}).`
+        );
+      } else {
+        setSelectedMomentId("");
+        setTimedCaptionsRaw("");
+        onNotice(
+          "Geen fragmenten met viralScore ≥ 75 gevonden. Pas eventueel je transcript of tijdvenster handmatig aan."
+        );
+      }
+    },
+    [onNotice]
+  );
+
   const runViralityAnalysis = useCallback(
-    async (useTranscriptOverride?: string) => {
-      if (!videoFile && !(useTranscriptOverride ?? transcriptText).trim()) return;
+    async (useTranscriptOverride?: string, forceFresh = false) => {
+      const effectiveTranscript = useTranscriptOverride ?? transcriptText;
+      if (!videoFile && !effectiveTranscript.trim()) return;
+
+      if (!forceFresh && videoUrl && !effectiveTranscript.trim()) {
+        const cached = podcastAnalysisCache.get(videoUrl);
+        if (cached) {
+          applyAnalysisResult(cached, "");
+          return;
+        }
+      }
 
       setAnalyzing(true);
       setAnalyzeError(null);
@@ -266,7 +332,7 @@ export default function ShortsEditor({
         const res = await analyzePodcastWithGemini({
           file: videoFile,
           videoUrl,
-          transcriptInput: useTranscriptOverride ?? transcriptText,
+          transcriptInput: effectiveTranscript,
           sourceTitle,
           onProgress: (pct, label) => {
             setAnalyzeProgress(pct);
@@ -274,37 +340,10 @@ export default function ShortsEditor({
           },
         });
 
-        setDurationSec(res.durationSec);
-        setDimensions({ w: res.width, h: res.height });
-        setTrackingMode(res.trackingMode);
-        setDetectedLanguage(res.language);
-        setFilteredOutCount(res.filteredOutCount);
-        setMoments(res.clips);
-        setManualKeyframes(null);
-        if (res.transcript && !(useTranscriptOverride ?? transcriptText).trim()) {
-          setTranscriptText(res.transcript);
+        if (videoUrl) {
+          cachePodcastAnalysis(videoUrl, res);
         }
-
-        if (res.clips.length > 0) {
-          const best = res.clips[0];
-          setSelectedMomentId(best.id);
-          setStartSec(best.startSec);
-          setClipDuration(best.durationSec);
-          setTimedCaptionsRaw(serializeTimedCaptions(best.captions));
-          setFallbackCaption(best.hookQuote || best.title);
-          if (videoRef.current) {
-            videoRef.current.currentTime = best.startSec;
-          }
-          onNotice(
-            `${res.clips.length} virale podcast-clip(s) gevonden (score ≥ 75 · taal: ${res.language}).`
-          );
-        } else {
-          setSelectedMomentId("");
-          setTimedCaptionsRaw("");
-          onNotice(
-            "Geen fragmenten met viralScore ≥ 75 gevonden. Pas eventueel je transcript of tijdvenster handmatig aan."
-          );
-        }
+        applyAnalysisResult(res, effectiveTranscript);
       } catch (err) {
         const msg =
           err instanceof Error
@@ -324,7 +363,7 @@ export default function ShortsEditor({
         setAnalyzing(false);
       }
     },
-    [onNotice, sourceTitle, transcriptText, videoFile, videoUrl]
+    [applyAnalysisResult, onNotice, sourceTitle, transcriptText, videoFile, videoUrl]
   );
 
   // Automatically run Gemini podcast analysis when a new video file is loaded
@@ -639,7 +678,7 @@ export default function ShortsEditor({
                   type="button"
                   className="btn-primary btn-compact"
                   disabled={analyzing || exporting}
-                  onClick={() => void runViralityAnalysis(transcriptText)}
+                  onClick={() => void runViralityAnalysis(transcriptText, true)}
                 >
                   <Sparkles size={13} aria-hidden="true" />
                   Analyseer op virale hooks

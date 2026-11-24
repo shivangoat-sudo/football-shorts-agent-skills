@@ -1,4 +1,9 @@
 import type { FocusKeyframe, TimedCaption } from "./videoAnalyzer";
+import {
+  applyCinematicPostProcessing,
+  drawKineticBeyondSubtitles,
+  pickEmotionalWordIndex,
+} from "./cinematicVisuals";
 
 export interface FilterPreset {
   id: string;
@@ -7,6 +12,11 @@ export interface FilterPreset {
 }
 
 export const FILTER_PRESETS: FilterPreset[] = [
+  {
+    id: "beyond-attraction",
+    label: "Beyond Attraction (Dark Cinema)",
+    cssFilter: "contrast(1.22) brightness(0.94) saturate(0.65)",
+  },
   {
     id: "crisp",
     label: "Helder Studio",
@@ -68,7 +78,7 @@ function wrapCaptionLines(
 }
 
 /**
- * Shared 9:16 reframing + speaker zoom + X/Y pan + sharpening + caption renderer
+ * Shared 9:16 reframing + speaker zoom + X/Y pan + Beyond Attraction grading + caption renderer
  * used by both the live preview canvas and the 1080x1920 Full HD exporter.
  */
 export function drawReframedFrame(
@@ -84,7 +94,10 @@ export function drawReframedFrame(
   const srcH = video.videoHeight || outHeight;
   const targetAspect = outWidth / outHeight;
   const srcAspect = srcW / srcH;
-  const zoom = Math.max(1, Math.min(2, focus.zoom || 1));
+  const isBeyondCinema =
+    filterCss === FILTER_PRESETS[0].cssFilter || filterCss.includes("saturate(0.65)");
+  const cycleZoom = isBeyondCinema ? 1 + ((video.currentTime % 3) / 3) * 0.08 : 1;
+  const zoom = Math.max(1, Math.min(2, (focus.zoom || 1) * cycleZoom));
 
   let baseW = srcW;
   let baseH = srcH;
@@ -106,17 +119,44 @@ export function drawReframedFrame(
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = "high";
 
-  ctx.fillStyle = "#0f172a";
+  ctx.fillStyle = "#0A0A0C";
   ctx.fillRect(0, 0, outWidth, outHeight);
 
   ctx.filter = filterCss || "none";
   ctx.drawImage(video, sx, sy, sw, sh, 0, 0, outWidth, outHeight);
   ctx.filter = "none";
 
+  if (isBeyondCinema) {
+    applyCinematicPostProcessing({
+      ctx,
+      outWidth,
+      outHeight,
+      currentTimeSec: video.currentTime || 0,
+      tint: "cool-blue",
+      vignetteIntensity: 0.84,
+    });
+  }
+
   if (caption.trim()) {
     const scale = outWidth / 1080;
+    if (isBeyondCinema) {
+      const words = caption.trim().split(/\s+/).filter(Boolean);
+      const highlightIdx = pickEmotionalWordIndex(words);
+      drawKineticBeyondSubtitles({
+        ctx,
+        outWidth,
+        outHeight,
+        words,
+        highlightIndex: highlightIdx,
+        fontSize: Math.round(58 * scale),
+        centerY: outHeight * 0.56,
+        entranceProgress: 1,
+      });
+      return;
+    }
+
     const fontSize = Math.round(52 * scale);
-    ctx.font = `700 ${fontSize}px 'Manrope', 'DM Sans', system-ui, sans-serif`;
+    ctx.font = `700 ${fontSize}px 'Montserrat', 'Inter', system-ui, sans-serif`;
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
 
@@ -126,7 +166,7 @@ export function drawReframedFrame(
     const boxHeight = lines.length * lineHeight + padY * 2;
     const boxY = outHeight - Math.round(420 * scale) - boxHeight / 2;
 
-    ctx.fillStyle = "rgba(15, 23, 42, 0.84)";
+    ctx.fillStyle = "rgba(10, 10, 12, 0.84)";
     const boxWidth = Math.min(
       outWidth - Math.round(96 * scale),
       Math.max(...lines.map((l) => ctx.measureText(l).width)) +
@@ -138,7 +178,7 @@ export function drawReframedFrame(
     ctx.roundRect(boxX, boxY, boxWidth, boxHeight, Math.round(16 * scale));
     ctx.fill();
 
-    ctx.fillStyle = "#ffffff";
+    ctx.fillStyle = "#F4F4F6";
     lines.forEach((line, idx) => {
       const y = boxY + padY + lineHeight * (idx + 0.5);
       ctx.fillText(line, outWidth / 2, y);
